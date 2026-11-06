@@ -1,0 +1,9 @@
+{
+  "id": "mission-control",
+  "name": "Mission Control",
+  "description": "Talk to Mission Control; it runs a crew of agents in their own worktrees",
+  "icon": "assets/icon.png",
+  "requirements": {
+    "paseo": ">=0.13.0"
+  }
+}

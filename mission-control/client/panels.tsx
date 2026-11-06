@@ -1,0 +1,203 @@
+/**
+ * Mission Control beside a workspace or an agent: the crewmate's card, found by the
+ * workspace it works in or by its own id, with the same actions the board
+ * has. In Mission Control's own tab it says so and counts the crew; anywhere
+ * else it offers to tell Mission Control about this place.
+ *
+ * Both panels read the fleet the board reads, under the same query key, so a
+ * board and a panel open together poll once between them.
+ */
+import type { PluginTheme } from "@getpaseo/plugin";
+import {
+  useAgent,
+  useRpc,
+  useSettings,
+  useWorkspace,
+  type PluginAgentPanelProps,
+  type PluginWorkspacePanelProps,
+} from "@getpaseo/plugin/client";
+import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { ScrollView, Text, View } from "react-native";
+
+import { askCoordinator, type FleetCard } from "../shared/fleet";
+import { displaySettings } from "../shared/settings";
+import { userMessage } from "./attachments";
+import { CardSheet } from "./card";
+import { BoardTasksContext } from "./board-tasks";
+import { LocalHostContext } from "./local-host";
+import type { CoordinatorAsk } from "./card-answer";
+import { FLEET_QUERY_KEY, useFleet } from "./fleet";
+import { useCoordinatorSender } from "./coordinator-send";
+import { groupCards } from "./format";
+import { IconButton, errorText } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
+
+type Navigation = PluginWorkspacePanelProps["navigation"];
+
+function PanelBody({
+  theme,
+  compact,
+  navigation,
+  match,
+  place,
+}: {
+  theme: PluginTheme;
+  compact: boolean;
+  navigation: Navigation;
+  /** Which card this panel is about. */
+  match: { agentId: string | null; workspaceId: string | null };
+  /** How the note to Mission Control names this place: "the workspace …", "the agent …". */
+  place: string;
+}) {
+  const display = useSettings(displaySettings);
+  const fleet = useFleet(display.status === "ready" ? display.values.pollSeconds : 5);
+  const queryClient = useQueryClient();
+  const ask = useRpc(askCoordinator);
+  const toast = useToast();
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  /**
+   * The board's sender, so a card's action or answer here goes out exactly as it does on the board —
+   * with a toast once it has, since the chat that would show it go out is not in view.
+   */
+  const coordinatorSender = useCoordinatorSender(fleet.data?.coordinator?.id ?? "");
+
+  const data = fleet.data ?? null;
+  const isCoordinator = data?.coordinator !== null && data?.coordinator !== undefined && data.coordinator.id === match.agentId;
+  const cards: FleetCard[] = useMemo(() => {
+    const all = data?.cards ?? [];
+    if (match.agentId !== null) {
+      const byAgent = all.filter((card) => card.agent?.id === match.agentId);
+      if (byAgent.length > 0) return byAgent;
+    }
+    return match.workspaceId === null ? [] : all.filter((card) => card.agent?.workspaceId === match.workspaceId);
+  }, [data, match.agentId, match.workspaceId]);
+
+  const styles = useMemo(() => {
+    const { colors } = theme;
+    return {
+      screen: { flex: 1, backgroundColor: colors.surface0 },
+      content: { padding: compact ? 12 : 16, gap: 10, paddingBottom: 24 },
+      title: { color: colors.foreground, fontSize: FONT_SIZE.subtitle, fontWeight: "600" as const },
+      muted: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
+      input: {
+        color: colors.foreground,
+        fontSize: FONT_SIZE.body,
+        minHeight: 60,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        backgroundColor: colors.surface1,
+        textAlignVertical: "top" as const,
+      },
+    };
+  }, [theme, compact]);
+
+  const toCoordinator: CoordinatorAsk | null =
+    data?.coordinator === null || data?.coordinator === undefined
+      ? null
+      : {
+          sending: coordinatorSender.sending,
+          send: (text, onFailure, onSent) =>
+            coordinatorSender.send(userMessage(text, []), onFailure, () => {
+              toast.show("Sent to Mission Control.", { variant: "success" });
+              onSent?.();
+            }),
+        };
+
+  function refresh(): void {
+    void queryClient.invalidateQueries({ queryKey: FLEET_QUERY_KEY });
+  }
+
+  function sendNote(): void {
+    const text = note.trim();
+    if (text === "" || sending) return;
+    setSending(true);
+    ask({ text: `${text}\n\n(Sent from ${place}.)` })
+      .then(() => {
+        setNote("");
+        toast.show("Sent to Mission Control.", { variant: "success" });
+      })
+      .catch((caught: unknown) => toast.error(errorText(caught)))
+      .finally(() => setSending(false));
+  }
+
+  let summary: string;
+  if (data === null) summary = fleet.error === null ? "Loading…" : errorText(fleet.error);
+  else if (isCoordinator) {
+    const groups = groupCards(data.cards);
+    summary = `This is Mission Control. ${groups.get("working")?.length ?? 0} working, ${groups.get("blocked")?.length ?? 0} blocked, ${groups.get("queued")?.length ?? 0} queued.`;
+  } else if (cards.length === 0) summary = "No Mission Control worker is running here.";
+  else summary = cards.length === 1 ? "A Mission Control worker." : `${cards.length} Mission Control workers.`;
+
+  return (
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} automaticallyAdjustKeyboardInsets>
+      <Text style={styles.title}>Mission Control</Text>
+      <Text style={styles.muted}>{summary}</Text>
+      {/* The whole board's tasks, so a card can name its blocker; a panel has no board to open one on. */}
+      <BoardTasksContext.Provider value={{ cards: data?.cards ?? [], open: null }}>
+        {cards.map((card) => (
+          <CardSheet key={card.key} card={card} theme={theme} compact={compact} onChanged={refresh} toCoordinator={toCoordinator} />
+        ))}
+      </BoardTasksContext.Provider>
+      {data?.coordinator === null || data?.coordinator === undefined || isCoordinator ? null : (
+        <View style={{ gap: 6 }}>
+          <Text style={styles.muted}>Tell Mission Control something about this:</Text>
+          <TextInput
+            value={note}
+            onChangeText={setNote}
+            placeholder="e.g. the tests here need a database first"
+            placeholderTextColor={theme.colors.foregroundMuted}
+            multiline
+            style={styles.input}
+          />
+          <View style={{ flexDirection: "row" }}>
+            <IconButton
+              icon="Send"
+              label={sending ? "Sending…" : "Send to Mission Control"}
+              showLabel
+              tone="accent"
+              theme={theme}
+              disabled={sending || note.trim() === ""}
+              onPress={sendNote}
+            />
+          </View>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+export function WorkspacePanel({ theme, layout, host, workspaceId, navigation }: PluginWorkspacePanelProps) {
+  const workspace = useWorkspace(workspaceId, (value) => ({ name: value.name, directory: value.directory }));
+  return (
+    <LocalHostContext.Provider value={host.label}>
+      <PanelBody
+        theme={theme}
+        compact={layout.compact}
+        navigation={navigation}
+        match={{ agentId: null, workspaceId }}
+        place={`the workspace "${workspace?.name ?? workspaceId}" (${workspace?.directory ?? "unknown directory"})`}
+      />
+    </LocalHostContext.Provider>
+  );
+}
+
+export function AgentPanel({ theme, layout, host, agentId, workspaceId, navigation }: PluginAgentPanelProps) {
+  const title = useAgent(agentId, (value) => value.title);
+  return (
+    <LocalHostContext.Provider value={host.label}>
+      <PanelBody
+        theme={theme}
+        compact={layout.compact}
+        navigation={navigation}
+        match={{ agentId, workspaceId }}
+        place={`the agent "${title ?? agentId}" (${agentId})`}
+      />
+    </LocalHostContext.Provider>
+  );
+}

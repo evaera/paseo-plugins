@@ -1,0 +1,70 @@
+{
+  "name": "paseo-debrief",
+  "version": "1.0.0",
+  "description": "Paseo plugin: review an agent's changes with inline comments the agent answers live, stories and plan review",
+  "license": "MIT",
+  "keywords": [
+    "paseo",
+    "paseo-plugin"
+  ],
+  "homepage": "https://github.com/evaera/paseo-plugins/tree/main/debrief",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evaera/paseo-plugins.git",
+    "directory": "debrief"
+  },
+  "type": "module",
+  "files": [
+    "paseo-plugin.json",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "assets/",
+    "CHANGELOG.md",
+    "!**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "0.14.0",
+    "@getpaseo/plugin": "0.14.0",
+    "@getpaseo/protocol": "0.14.0",
+    "@tanstack/react-query": "^5.105.3",
+    "@types/node": "^26.6.6",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "zod": "^4.6.7"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.4",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-cpp": "^6.0.3",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-go": "^6.0.1",
+    "@codemirror/lang-html": "^6.4.12",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/lang-rust": "^6.0.2",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/merge": "^6.12.3",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@getpaseo/highlight": "0.14.0",
+    "@lezer/highlight": "^1.2.5",
+    "diff": "^9.0.0"
+  }
+}

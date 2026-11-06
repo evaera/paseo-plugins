@@ -1,0 +1,10 @@
+{
+  "id": "debrief",
+  "name": "Debrief",
+  "description": "Review an agent's changes in Paseo: inline comments the agent answers live, stories and plan review",
+  "icon": "assets/icon.png",
+  "requirements": {
+    "paseo": ">=0.14.0"
+  },
+  "build": [["npm", "ci", "--omit=dev", "--ignore-scripts"]]
+}
