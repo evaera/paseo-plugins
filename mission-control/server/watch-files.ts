@@ -5,8 +5,10 @@
  * A watch is any file directly in `watches/` whose name is letters, digits, `.`, `_` and `-`, does not
  * start with a dot and does not end in `.md` (the folder's README). It declares its schedule in a
  * comment in its first lines — `# schedule: 0,30 9-17 * * 1-5`, or `//` or `--` for languages that comment
- * that way — and it has to be executable, since it is run as it is, by its `#!` line. A file that
- * fails any of that is still listed, as invalid with the reason, and never run.
+ * that way — and it has to be executable, since it is run as it is, by its `#!` line. On Windows, which
+ * has no executable bit and no `#!` support, the bit is not checked and the `#!` line has to name an
+ * interpreter that can be found there instead (`shebang.ts`). A file that fails any of that is still
+ * listed, as invalid with the reason, and never run.
  *
  * **The plugin's own watches** (`BUILT_IN_WATCHES`) start as their namesakes in `templates/watches/`,
  * and follow the plugin until the user edits them — the way `prompts/charter.md` does
@@ -23,6 +25,7 @@ import { chmod, mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/
 import { join } from "node:path";
 
 import { WATCHES_DIR } from "../shared/fleet";
+import { windowsLauncher } from "./shebang";
 import { parseSchedule, type Schedule } from "./watch-schedule";
 import { TEMPLATES, fill, readTemplate, type TemplatePath } from "./templates";
 
@@ -76,7 +79,7 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function readWatch(directory: string, name: string): Promise<WatchFile> {
+async function readWatch(directory: string, name: string, platform: NodeJS.Platform): Promise<WatchFile> {
   const path = join(directory, name);
   const invalid = (reason: string, scheduleText: string | null = null): WatchFile => ({
     name,
@@ -104,13 +107,19 @@ async function readWatch(directory: string, name: string): Promise<WatchFile> {
   } catch (error) {
     return invalid(`its schedule cannot be read: ${describe(error)}`, scheduleText);
   }
-  if ((mode & 0o111) === 0) return invalid("it is not executable (chmod +x)", scheduleText);
-  if (!head.startsWith("#!")) return invalid("it has no #! line saying what runs it", scheduleText);
+  if (platform === "win32") {
+    // Node reports every file as 0o666 on Windows; what matters there is whether the #! line resolves.
+    const launcher = await windowsLauncher(head, path, process.env);
+    if ("invalid" in launcher) return invalid(launcher.invalid, scheduleText);
+  } else {
+    if ((mode & 0o111) === 0) return invalid("it is not executable (chmod +x)", scheduleText);
+    if (!head.startsWith("#!")) return invalid("it has no #! line saying what runs it", scheduleText);
+  }
   return { name, path, scheduleText, schedule, invalid: null };
 }
 
 /** Every watch in `<home>/watches/`, by name; none when the folder is missing. */
-export async function listWatches(home: string): Promise<WatchFile[]> {
+export async function listWatches(home: string, platform: NodeJS.Platform = process.platform): Promise<WatchFile[]> {
   const directory = join(home, WATCHES_DIR);
   let entries;
   try {
@@ -123,7 +132,7 @@ export async function listWatches(home: string): Promise<WatchFile[]> {
     .filter((entry) => entry.isFile() && !entry.name.startsWith(".") && !entry.name.toLowerCase().endsWith(".md"))
     .map((entry) => entry.name)
     .sort();
-  return Promise.all(names.map((name) => readWatch(directory, name)));
+  return Promise.all(names.map((name) => readWatch(directory, name, platform)));
 }
 
 // ---------------------------------------------------------------------------

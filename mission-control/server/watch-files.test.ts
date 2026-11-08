@@ -77,6 +77,21 @@ describe("listWatches", () => {
     for (const watch of watches) expect(watch.path).toBe(join(home, watchPath(watch.name)));
   });
 
+  it("on Windows, skips the executable bit and needs a #! line that resolves there", async () => {
+    const home = await tempHome();
+    // Only its existence is checked; a temp path also keeps spaces out of the #! line.
+    const interpreter = join(home, "interpreter.exe");
+    await writeFile(interpreter, "", "utf8");
+    await script(home, "node-watch", `#!${interpreter}\n// schedule: * * * * *\n`, 0o644);
+    await script(home, "missing-interpreter", "#!/usr/bin/env no-such-interpreter-here\n# schedule: * * * * *\n");
+    await script(home, "no-shebang", "# schedule: * * * * *\necho hi\n");
+
+    const invalid = Object.fromEntries((await listWatches(home, "win32")).map((watch) => [watch.name, watch.invalid]));
+    expect(invalid["node-watch"]).toBeNull();
+    expect(invalid["missing-interpreter"]).toMatch(/no-such-interpreter-here, which is not on PATH/);
+    expect(invalid["no-shebang"]).toMatch(/no #! line/);
+  });
+
   it("finds none in a home without the folder", async () => {
     const home = await mkdtemp(join(tmpdir(), "mission-control-watches-"));
     tempDirs.push(home);
