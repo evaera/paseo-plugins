@@ -15,8 +15,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useState } from "react";
-import { Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { useMemo, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 
 import { steerCrew, type AgentSummary, type CrewReportSummary, type FleetCard } from "../shared/fleet";
 import { activityRows, type ActivityRow, type PlanStatus } from "./activity-rows";
@@ -29,7 +29,7 @@ import { useFollowEnd } from "./use-follow-end";
 import { WorkerAvatar, stateColor } from "./avatar-view";
 import { workerState } from "./worker-state";
 import { useWorkerBranch } from "./card-details";
-import { agentStatusLabel, agentStatusTone, contextPercent, contextTone, modelName } from "./format";
+import { COLUMNS, agentStatusLabel, agentStatusTone, contextPercent, contextTone, modelName } from "./format";
 import { useLocalHost } from "./local-host";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
@@ -38,6 +38,10 @@ import { PermissionCard, usePendingRequests } from "./permission-card";
 import { TaskNotes } from "./task-notes";
 import { Chip, IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
+import { useLayoutTier } from "./layout-tier";
+import { useKeyboardOverlap } from "./keyboard";
+import { EdgeFade } from "./edges";
+import { GrowingSlot, useGrowingHeight } from "./growing-input";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 /** How much of a crewmate's history is read: its tail, this many entries long. */
@@ -45,8 +49,17 @@ const TIMELINE_LIMIT = 200;
 /** Below this width the card sits above the transcript instead of beside it. */
 const SIDE_BY_SIDE_WIDTH = 680;
 const CARD_COLUMN_WIDTH = 320;
+/** A phone's or a tablet's worker box grows to this many lines, then scrolls. */
+const WORKER_INPUT_MAX_LINES = 6;
 /** A card with no worker has nothing beside it, so it is held to a readable width. */
 const ALONE_MAX_WIDTH = 640;
+/**
+ * Whether a phone's or a tablet's stacked card view shows the card or the transcript: one at a time,
+ * the whole pane each, since neither is usable in half of a phone. The transcript by default; kept
+ * across cards and remounts for the session, like the open tab.
+ */
+let detailsOpen = false;
+
 /**
  * A prompt or reasoning longer than this is folded until pressed. Only text
  * that gets the Show all toggle is clamped: a paragraph judged short can still
@@ -100,6 +113,15 @@ export function CardView({
   const tasks = useBoardTasks();
   const debriefTarget = card === null ? null : cardDebriefTarget(card);
   const sideBySide = !compact && width >= SIDE_BY_SIDE_WIDTH;
+  const tier = useLayoutTier();
+  const touch = tier !== "wide";
+  /** A phone's or a tablet's card stacked over a transcript folds to one line, and unfolded takes the transcript's place. */
+  const foldable = touch && !sideBySide && agent !== null;
+  const [unfolded, setUnfolded] = useState(detailsOpen);
+  const folded = foldable && !unfolded;
+  const root = useRef<View>(null);
+  /** The worker's box sits at the view's foot, outside any scroll view, so the view lifts itself clear of the keyboard. */
+  const keyboard = useKeyboardOverlap(root);
 
   const styles = useMemo(() => {
     const { colors } = theme;
@@ -118,6 +140,18 @@ export function CardView({
       bodySide: { flexDirection: "row" as const },
       cardColumn: { width: CARD_COLUMN_WIDTH, flexGrow: 0, flexShrink: 0 },
       cardStacked: { flexGrow: 0, maxHeight: "45%" as const },
+      fold: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        minHeight: 44,
+        paddingHorizontal: 12,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        backgroundColor: colors.surface1,
+      },
+      foldText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
       cardContent: { gap: 10, paddingBottom: 4 },
       cardAlone: { flex: 1 },
       alone: { gap: 10, width: "100%" as const, maxWidth: ALONE_MAX_WIDTH, paddingBottom: 12 },
@@ -152,10 +186,28 @@ export function CardView({
       </>
     );
 
+  const fold = foldable ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !folded }}
+      accessibilityLabel={folded ? "Show the card's details" : "Hide the card's details"}
+      style={styles.fold}
+      onPress={() => {
+        detailsOpen = folded;
+        setUnfolded(folded);
+      }}
+    >
+      <Icon name={folded ? "ChevronRight" : "ChevronDown"} size={16} color={theme.colors.foregroundMuted} />
+      <Text style={styles.foldText} numberOfLines={1}>
+        {folded ? (card === null ? "Details" : `Details · ${COLUMNS[card.column].title}`) : "Hide details, back to the worker"}
+      </Text>
+    </Pressable>
+  ) : null;
+
   return (
-    <View style={styles.screen}>
+    <View ref={root} style={[styles.screen, keyboard > 0 ? { paddingBottom: keyboard } : null]}>
       <View style={styles.bar}>
-        <IconButton icon="ChevronLeft" label="Crew" showLabel theme={theme} onPress={onBack} />
+        <IconButton icon="ChevronLeft" label="Crew" showLabel theme={theme} onPress={onBack} touch={touch} />
         <Text style={styles.title} numberOfLines={1}>
           {card?.title ?? "Card"}
         </Text>
@@ -164,13 +216,14 @@ export function CardView({
           <IconButton
             icon="FileDiff"
             label="View diff"
-            showLabel={!compact}
+            showLabel={!touch && !compact}
             theme={theme}
             onPress={() => tasks.debrief?.(debriefTarget, "diff")}
+            touch={touch}
           />
         )}
         {onOpen === null ? null : (
-          <IconButton icon="ExternalLink" label="Open in Paseo" showLabel={!compact} theme={theme} onPress={onOpen} />
+          <IconButton icon="ExternalLink" label="Open in Paseo" showLabel={!touch && !compact} theme={theme} onPress={onOpen} touch={touch} />
         )}
       </View>
       {/*
@@ -181,8 +234,13 @@ export function CardView({
         style={[styles.body, sideBySide || agent === null ? styles.bodySide : null]}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
       >
+        {fold}
+        {/* Hidden rather than unmounted, either side of the fold, so a half-typed note, answer or message survives it. */}
         <ScrollView
-          style={agent === null ? styles.cardAlone : sideBySide ? styles.cardColumn : styles.cardStacked}
+          style={[
+            agent === null ? styles.cardAlone : sideBySide ? styles.cardColumn : styles.cardStacked,
+            foldable ? (folded ? { display: "none" as const } : { flex: 1, maxHeight: "100%" as const }) : null,
+          ]}
           contentContainerStyle={agent === null ? styles.alone : styles.cardContent}
           // The card's boxes are in here; on iOS the system scrolls the focused one into view.
           automaticallyAdjustKeyboardInsets
@@ -190,7 +248,7 @@ export function CardView({
           {sheet}
         </ScrollView>
         {agent === null ? null : (
-          <View style={styles.transcriptFrame}>
+          <View style={[styles.transcriptFrame, foldable && !folded ? { display: "none" as const } : null]}>
             {/* A bare `[[debrief]]` the worker writes means its own work. */}
             <DebriefSelfContext.Provider value={card}>
             <ActivityTranscript
@@ -204,9 +262,10 @@ export function CardView({
               compact={compact}
               onOpenFile={onOpenFile}
               onOpen={onOpen}
+              fadeTop={touch}
             />
             </DebriefSelfContext.Provider>
-            <WorkerComposer agent={agent} theme={theme} compact={compact} onSent={onChanged} />
+            <WorkerComposer agent={agent} theme={theme} compact={compact} onSent={onChanged} grow={touch} />
           </View>
         )}
       </View>
@@ -268,7 +327,8 @@ function WorkerHeader({
           >
             {agent.title ?? "Worker"}
           </Text>
-          {branch === null ? null : (
+          {/* A phone has no room for it beside the title, where it shrank to a letter; the card's details carry it. */}
+          {branch === null || compact ? null : (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 2, minWidth: 0 }}>
               <Icon name="GitBranch" size={12} color={colors.foregroundMuted} />
               <Text style={small} numberOfLines={1}>
@@ -321,17 +381,30 @@ function WorkerComposer({
   theme,
   compact,
   onSent,
+  grow = false,
 }: {
   agent: AgentSummary;
   theme: PluginTheme;
   compact: boolean;
   onSent: () => void;
+  /**
+   * A phone's or a tablet's box: one line beside Send, growing with the words up to
+   * `WORKER_INPUT_MAX_LINES`, so an empty box leaves the transcript the room.
+   */
+  grow?: boolean;
 }) {
   const steer = useRpc(steerCrew);
   const toast = useToast();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const submitOnEnter = Platform.OS === "web" && !compact;
+  const growing = useGrowingHeight({
+    text,
+    fontSize: FONT_SIZE.content,
+    lineHeight: lineHeightFor(FONT_SIZE.content),
+    maxLines: WORKER_INPUT_MAX_LINES,
+    enabled: grow,
+  });
   const styles = useMemo(() => {
     const { colors } = theme;
     return {
@@ -374,6 +447,28 @@ function WorkerComposer({
         backgroundColor: colors.accent,
       },
       sendIdle: { backgroundColor: colors.surface2 },
+      grownFrame: {
+        paddingHorizontal: 8,
+        paddingTop: 6,
+        paddingBottom: 6,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        backgroundColor: colors.surface0,
+      },
+      grownBox: {
+        flexDirection: "row" as const,
+        alignItems: "flex-end" as const,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 20,
+        backgroundColor: colors.surface1,
+        paddingLeft: 14,
+        paddingRight: 5,
+        paddingVertical: 5,
+      },
+      grownInput: { flex: 1, minWidth: 0, paddingVertical: 6 },
+      grownSend: { width: 32, height: 32, borderRadius: 16 },
     };
   }, [theme, compact]);
 
@@ -391,6 +486,49 @@ function WorkerComposer({
   }
 
   const idle = sending || text.trim() === "";
+  if (grow) {
+    return (
+      <View style={styles.grownFrame}>
+        <View style={styles.grownBox}>
+          <View style={styles.grownInput}>
+            <GrowingSlot twin={growing.twin}>
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                editable={!sending}
+                placeholder="Message the worker…"
+                placeholderTextColor={theme.colors.foregroundMuted}
+                accessibilityLabel={`Message ${agent.title ?? "the worker"}`}
+                multiline
+                onKeyPress={
+                  submitOnEnter
+                    ? (event: WebKeyPressEvent) => {
+                        if (!isSendKey(event.nativeEvent) || sending || text.trim() === "") return;
+                        event.preventDefault();
+                        send();
+                      }
+                    : undefined
+                }
+                style={[styles.input, { height: growing.height }]}
+              />
+            </GrowingSlot>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Send"
+            accessibilityState={{ disabled: idle }}
+            disabled={idle}
+            onPress={send}
+            // Drawn 32 across; the touch target is 44.
+            hitSlop={6}
+            style={[styles.send, styles.grownSend, idle ? styles.sendIdle : null]}
+          >
+            <Icon name="ArrowUp" size={16} color={idle ? theme.colors.foregroundMuted : theme.colors.accentForeground} />
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={styles.frame}>
       <View style={styles.box}>
@@ -441,6 +579,7 @@ function ActivityTranscript({
   compact,
   onOpen,
   onOpenFile,
+  fadeTop = false,
 }: {
   /** The worker as the board last saw it, for the header; null draws none. */
   agent: AgentSummary | null;
@@ -456,9 +595,15 @@ function ActivityTranscript({
   compact: boolean;
   onOpen: (() => void) | null;
   onOpenFile: ((path: string) => void) | null;
+  /**
+   * Fades the transcript's top edge while it is scrolled, so a row cut by the header reads as scrolled
+   * past rather than drawn under it. Phones and tablets, where the transcript is short.
+   */
+  fadeTop?: boolean;
 }) {
   const toast = useToast();
   const timeline = useAgentTimeline(agentId, revision, TIMELINE_LIMIT, serverId);
+  const [scrolled, setScrolled] = useState(false);
   const rows = useMemo(() => activityRows(timeline.entries), [timeline.entries]);
   // A worker on another host names files on that machine, which this host's daemon cannot read or vouch for.
   const local = serverId === null;
@@ -676,7 +821,16 @@ function ActivityTranscript({
         A question's free-text box is at the end of this list; on iOS the system
         insets it for the keyboard and scrolls the focused box into view.
       */}
-      <ScrollView {...follow.scrollProps} contentContainerStyle={styles.body} automaticallyAdjustKeyboardInsets>
+      <View style={{ flex: 1, minHeight: 0 }}>
+      <ScrollView
+        {...follow.scrollProps}
+        onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+          follow.scrollProps.onScroll(event);
+          if (fadeTop) setScrolled(event.nativeEvent.contentOffset.y > 4);
+        }}
+        contentContainerStyle={styles.body}
+        automaticallyAdjustKeyboardInsets
+      >
         {timeline.hasOlder ? (
           <View style={styles.line}>
             <Icon name="History" size={11} color={theme.colors.foregroundMuted} />
@@ -724,6 +878,8 @@ function ActivityTranscript({
           </View>
         ) : null}
       </ScrollView>
+      {fadeTop && scrolled ? <EdgeFade side="top" color={theme.colors.surface1} /> : null}
+      </View>
       {follow.away ? <JumpToEnd theme={theme} onPress={follow.jumpToEnd} /> : null}
     </View>
   );

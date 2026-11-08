@@ -59,6 +59,8 @@ import { ResizeHandle, clampShare } from "./resize-handle";
 import { RunOpenContext } from "./run-embed";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 import { FONT_SIZE } from "./type-scale";
+import { LayoutTierContext, TOUCH_TARGET, layoutTier } from "./layout-tier";
+import { SafeEdges } from "./edges";
 
 export const FLEET_QUERY_KEY = ["mission-control", "fleet"] as const;
 
@@ -157,7 +159,15 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   const [override, setOverride] = useState<Partial<DisplaySettings>>({});
   const values: DisplaySettings = { ...saved, ...override };
   const [share, setShare] = useState<number | null>(null);
+  /**
+   * The surface's width: the split's too, which spans it, and what picks the layout tier. Measured on
+   * the root, which is mounted in every layout, so a fold or an unfold that changes `compact` finds it
+   * already known rather than starting the split at 0 wide.
+   */
   const [width, setWidth] = useState(0);
+  const tier = layoutTier(compact, width);
+  /** Phone and tablet: the layouts a finger drives, which get touch-sized targets and the safe-area edges. */
+  const touch = tier !== "wide";
   const [tab, setTabState] = useState<Tab>(cachedTab);
   const [rightPane, setRightPaneState] = useState(cachedRightPane);
   const [watching, setWatchingState] = useState(cachedWatching);
@@ -270,40 +280,45 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       screen: { flex: 1, backgroundColor: colors.surface0 },
       header: {
         paddingHorizontal: compact ? 12 : 16,
-        paddingTop: compact ? 10 : 14,
-        paddingBottom: 8,
+        paddingTop: compact ? 4 : touch ? 6 : 14,
+        paddingBottom: compact ? 4 : touch ? 6 : 8,
         gap: 4,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
       },
-      headerRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexWrap: "wrap" as const },
+      headerRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexWrap: touch ? ("nowrap" as const) : ("wrap" as const) },
       title: { color: colors.foreground, fontSize: compact ? FONT_SIZE.heading : FONT_SIZE.display, fontWeight: "600" as const },
       spacer: { flex: 1 },
       meta: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       banners: { paddingHorizontal: compact ? 12 : 16, paddingTop: 8, gap: 6 },
       split: { flex: 1, minHeight: 0, flexDirection: "row" as const },
       rail: {
-        width: 40,
+        width: touch ? TOUCH_TARGET + 8 : 40,
         alignItems: "center" as const,
         paddingTop: 10,
         backgroundColor: colors.surface1,
         borderColor: colors.border,
       },
+      // A phone's tabs are a bar at the foot, where a thumb reaches them, as Paseo's own phone tabs are.
       tabs: {
         flexDirection: "row" as const,
-        margin: 10,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 8,
-        overflow: "hidden" as const,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        backgroundColor: colors.surface0,
       },
-      tab: { flex: 1, paddingVertical: 7, alignItems: "center" as const },
-      tabActive: { backgroundColor: colors.accent },
-      tabText: { color: colors.foreground, fontSize: FONT_SIZE.body },
-      tabTextActive: { color: colors.accentForeground, fontWeight: "600" as const },
+      tab: {
+        flex: 1,
+        minHeight: TOUCH_TARGET + 6,
+        paddingVertical: 5,
+        gap: 2,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      tabText: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontWeight: "500" as const },
+      tabTextActive: { color: colors.accent, fontWeight: "700" as const },
       loading: { color: colors.foregroundMuted, fontSize: FONT_SIZE.body, padding: 20 },
     };
-  }, [theme, compact]);
+  }, [theme, compact, touch]);
 
   const coordinator = data?.coordinator ?? null;
   /** The chat's own sender, so a suggestion goes out exactly as a typed message does. */
@@ -567,15 +582,21 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     banners.push(<Banner key={warning} theme={theme} tone="warning" text={warning} />);
   }
 
+  // The host's own header already says "Mission Control" above the screen; a phone or a tablet has no
+  // room to say it twice, so there the row is the coordinator's state and the buttons.
   const header = (
     <View style={styles.header}>
       <View style={styles.headerRow}>
-        <Icon name="SatelliteDish" size={compact ? 16 : 18} color={theme.colors.foreground} />
-        <Text style={styles.title}>Mission Control</Text>
+        {touch ? null : <Icon name="SatelliteDish" size={compact ? 16 : 18} color={theme.colors.foreground} />}
+        {touch ? null : <Text style={styles.title}>Mission Control</Text>}
         {coordinator === null ? null : (
           <Chip theme={theme} text={`Coordinator · ${agentStatusLabel(coordinator)}`} color={agentStatusTone(theme, coordinator)} />
         )}
         <View style={styles.spacer} />
+        {/* A tablet's board wants the width more often than a desktop's: the chat folds from here to the rail. */}
+        {tier === "tablet" && coordinator !== null && data !== null && !values.chatCollapsed && !values.boardCollapsed ? (
+          <IconButton icon="PanelLeftClose" label="Hide the chat" theme={theme} onPress={() => save({ chatCollapsed: true })} touch />
+        ) : null}
         {!compact && coordinator !== null && data !== null && !values.boardCollapsed ? (
           <Segmented
             theme={theme}
@@ -585,6 +606,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
               { value: "files", label: "Files" },
             ]}
             onChange={setRightPane}
+            touch={touch}
           />
         ) : null}
         <IconButton
@@ -593,33 +615,55 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           theme={theme}
           disabled={fleet.isFetching}
           onPress={refresh}
+          touch={touch}
         />
         {openSettings === null ? null : (
-          <IconButton icon="Settings" label="Mission Control settings" theme={theme} onPress={() => openSettings?.("mission-control")} />
+          <IconButton
+            icon="Settings"
+            label="Mission Control settings"
+            theme={theme}
+            onPress={() => openSettings?.("mission-control")}
+            touch={touch}
+          />
         )}
       </View>
     </View>
   );
 
+  /**
+   * Every layout's root: measures the surface, provides the tier, and on a phone or a tablet keeps the
+   * content inside the safe area on the sides and at the foot (the host pads only the top). The same
+   * element in every tier, so a fold or an unfold that crosses one does not remount the screen.
+   */
+  const frame = (content: ReactNode) => (
+    <LayoutTierContext.Provider value={tier}>
+      <SafeEdges edges={touch ? ["left", "right", "bottom"] : []} style={styles.screen}>
+        <View style={styles.screen} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+          {content}
+        </View>
+      </SafeEdges>
+    </LayoutTierContext.Provider>
+  );
+
   if (data === null) {
-    return (
-      <View style={styles.screen}>
+    return frame(
+      <>
         {header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
         <Text style={styles.loading}>{fleet.error === null ? "Loading the crew…" : ""}</Text>
-      </View>
+      </>,
     );
   }
 
   if (coordinator === null) {
-    return (
-      <View style={styles.screen}>
+    return frame(
+      <>
         {header}
         <ScrollView automaticallyAdjustKeyboardInsets>
           {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
           <LaunchPanel theme={theme} compact={compact} home={data.home} onLaunched={refresh} />
         </ScrollView>
-      </View>
+      </>,
     );
   }
 
@@ -722,26 +766,15 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   const crew = <BoardTasksContext.Provider value={boardTasks}>{crewView}</BoardTasksContext.Provider>;
 
   if (compact) {
-    const tabs: readonly Tab[] = ["chat", "board", "files"];
-    return (
-      <View style={styles.screen}>
+    const tabs: readonly { id: Tab; label: string; icon: string }[] = [
+      { id: "chat", label: "Coordinator", icon: "MessageSquare" },
+      { id: "board", label: "Board", icon: "SquareKanban" },
+      { id: "files", label: "Files", icon: "Folder" },
+    ];
+    return frame(
+      <>
         {header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
-        <View style={styles.tabs}>
-          {tabs.map((id) => (
-            <Pressable
-              key={id}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: shownTab === id }}
-              style={[styles.tab, shownTab === id ? styles.tabActive : null]}
-              onPress={() => setTab(id)}
-            >
-              <Text style={[styles.tabText, shownTab === id ? styles.tabTextActive : null]} numberOfLines={1}>
-                {id === "chat" ? "Coordinator" : id === "board" ? "Board" : "Files"}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
         <View style={{ flex: 1, minHeight: 0 }}>
           {shownTab === "chat" ? (
             chat
@@ -751,16 +784,37 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
             <FilesView theme={theme} compact request={filesRequest} />
           )}
         </View>
-      </View>
+        <View style={styles.tabs} accessibilityRole="tablist">
+          {tabs.map((tab) => {
+            const selected = shownTab === tab.id;
+            const color = selected ? theme.colors.accent : theme.colors.foregroundMuted;
+            return (
+              <Pressable
+                key={tab.id}
+                accessibilityRole="tab"
+                accessibilityLabel={tab.label}
+                accessibilityState={{ selected }}
+                style={styles.tab}
+                onPress={() => setTab(tab.id)}
+              >
+                <Icon name={tab.icon} size={20} color={color} />
+                <Text style={[styles.tabText, selected ? styles.tabTextActive : null]} numberOfLines={1}>
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </>,
     );
   }
 
   const chatShare = clampShare(share ?? values.chatWidthFraction);
-  return (
-    <View style={styles.screen}>
+  return frame(
+    <>
       {header}
       {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
-      <View style={styles.split} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      <View style={styles.split}>
         {values.chatCollapsed ? (
           <View style={[styles.rail, { borderRightWidth: 1 }]}>
             <IconButton
@@ -768,6 +822,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
               label="Show the chat"
               theme={theme}
               onPress={() => save({ chatCollapsed: false })}
+              touch={touch}
             />
           </View>
         ) : (
@@ -792,6 +847,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
               label="Show the board"
               theme={theme}
               onPress={() => save({ boardCollapsed: false })}
+              touch={touch}
             />
           </View>
         ) : (
@@ -800,6 +856,6 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           </View>
         )}
       </View>
-    </View>
+    </>,
   );
 }

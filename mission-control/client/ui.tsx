@@ -8,6 +8,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
+import { TOUCH_TARGET } from "./layout-tier";
 
 /** A fixed-width font on every platform; iOS has no font named "monospace". */
 export const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -22,6 +23,7 @@ export function IconButton({
   tone = "default",
   disabled = false,
   showLabel = false,
+  touch = false,
 }: {
   icon: string;
   label: string;
@@ -31,6 +33,8 @@ export function IconButton({
   disabled?: boolean;
   /** Draws the label beside the icon; otherwise it is only the accessibility label. */
   showLabel?: boolean;
+  /** At least `TOUCH_TARGET` square, for the layouts a finger drives. */
+  touch?: boolean;
 }) {
   const colors = theme.colors;
   const color =
@@ -50,10 +54,11 @@ export function IconButton({
         opacity: disabled ? 0.5 : 1,
         // A long label — a card action Mission Control named — wraps inside a narrow card instead of overflowing it.
         maxWidth: "100%" as const,
+        ...(touch ? { minHeight: TOUCH_TARGET, minWidth: TOUCH_TARGET, justifyContent: "center" as const } : {}),
       },
       label: { color, fontSize: FONT_SIZE.small, fontWeight: "500" as const, flexShrink: 1 },
     }),
-    [colors, tone, disabled, showLabel, color],
+    [colors, tone, disabled, showLabel, color, touch],
   );
   return (
     <Pressable
@@ -119,18 +124,21 @@ export function Segmented<Value extends string>({
   value,
   options,
   onChange,
+  touch = false,
 }: {
   theme: PluginTheme;
   value: Value;
   options: ReadonlyArray<{ value: Value; label: string }>;
   onChange: (value: Value) => void;
+  /** `TOUCH_TARGET` tall, for the layouts a finger drives. */
+  touch?: boolean;
 }) {
   const colors = theme.colors;
   const styles = useMemo(
     () => ({
       frame: {
         flexDirection: "row" as const,
-        height: 28,
+        height: touch ? TOUCH_TARGET : 28,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: colors.border,
@@ -142,7 +150,7 @@ export function Segmented<Value extends string>({
       label: { color: colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
       labelSelected: { color: colors.accentForeground, fontWeight: "600" as const },
     }),
-    [colors],
+    [colors, touch],
   );
   return (
     <View style={styles.frame} accessibilityRole="tablist">
@@ -292,9 +300,12 @@ export function Chip({ theme, text, color }: { theme: PluginTheme; text: string;
         borderWidth: 1,
         borderColor: theme.colors.border,
         backgroundColor: theme.colors.surface2,
+        // Shrinks only when its row has no room, so a long status truncates instead of pushing buttons off.
+        flexShrink: 1,
+        minWidth: 0,
       },
       dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: color },
-      text: { color: theme.colors.foreground, fontSize: FONT_SIZE.caption },
+      text: { flexShrink: 1, color: theme.colors.foreground, fontSize: FONT_SIZE.caption },
     }),
     [theme, color],
   );

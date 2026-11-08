@@ -21,6 +21,8 @@ import type { Suggestion } from "../shared/fleet";
 import { chevronLabel, isCut, showsChevron } from "./suggestion-fold";
 import { suggestionRemovals } from "./suggestion-removals";
 import { FONT_SIZE } from "./type-scale";
+import { useLayoutTier } from "./layout-tier";
+import { EdgeFade, useOverflowEdges } from "./edges";
 
 export const SUGGESTIONS_TITLE = "Suggestions";
 export const SUGGESTIONS_ICON = "Lightbulb";
@@ -224,6 +226,9 @@ export function SuggestionChips({
   onPick: (prompt: string) => void;
   onRemove: (suggestion: Suggestion) => Promise<void>;
 }) {
+  // A phone or a tablet shows where the row goes on past its edge; a wide layout is as it always was.
+  const faded = useLayoutTier() !== "wide";
+  const overflow = useOverflowEdges();
   const styles = useMemo(() => {
     const { colors } = theme;
     return {
@@ -246,14 +251,21 @@ export function SuggestionChips({
     };
   }, [theme]);
   if (suggestions.length === 0) return null;
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+  const row = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.row}
+      {...(faded ? overflow.scrollProps : {})}
+    >
       {suggestions.map((suggestion) => (
         <View key={`${suggestion.label}:${suggestion.prompt}`} style={[styles.chip, disabled ? { opacity: 0.5 } : null]}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Send: ${suggestion.prompt}`}
             disabled={disabled}
+            // The chip is drawn small; a finger gets the full touch target around it.
+            hitSlop={{ top: 10, bottom: 10, left: 4 }}
             style={{ flexShrink: 1 }}
             onPress={() => onPick(suggestion.prompt)}
           >
@@ -264,6 +276,7 @@ export function SuggestionChips({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Dismiss ${suggestion.label}`}
+            hitSlop={{ top: 10, bottom: 10, right: 6 }}
             style={styles.remove}
             onPress={() => void onRemove(suggestion)}
           >
@@ -272,5 +285,13 @@ export function SuggestionChips({
         </View>
       ))}
     </ScrollView>
+  );
+  if (!faded) return row;
+  return (
+    <View>
+      {row}
+      {overflow.edges.start ? <EdgeFade side="start" color={theme.colors.surface0} /> : null}
+      {overflow.edges.end ? <EdgeFade side="end" color={theme.colors.surface0} /> : null}
+    </View>
   );
 }

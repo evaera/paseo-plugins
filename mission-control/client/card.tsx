@@ -343,6 +343,8 @@ export function CrewCard({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Talk to Mission Control about ${card.title}`}
+            // Drawn small in the card's corner; a finger gets a full touch target around it.
+            hitSlop={10}
             style={styles.cornerButton}
             onPress={onChat}
           >

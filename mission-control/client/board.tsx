@@ -31,6 +31,8 @@ import { SortableList } from "./sortable";
 import { tint } from "./ui";
 import { WATCHES_ICON, WatchList } from "./watches";
 import { FONT_SIZE } from "./type-scale";
+import { TABLET_COLUMNS, columnOffsets, fittedColumnWidth, nextOffset, useLayoutTier } from "./layout-tier";
+import { EdgeFade, useOverflowEdges } from "./edges";
 
 const COLUMN_WIDTH = 280;
 const COLLAPSED_WIDTH = 40;
@@ -69,6 +71,12 @@ export function Board(props: BoardProps) {
   const [menu, setMenu] = useState<{ card: FleetCard; x: number; y: number } | null>(null);
   const root = useRef<View>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  /**
+   * A tablet's pane holds two columns or so: they are fitted to it so none is cut at the edge, the row
+   * snaps to a column's start, and the ends that go on fade with a button that moves a column along.
+   */
+  const fitted = useLayoutTier() === "tablet";
+  const overflow = useOverflowEdges();
 
   /** A press point in window coordinates, made the board's own: the menu is drawn inside the board. */
   function openMenu(card: FleetCard, x: number, y: number): void {
@@ -118,7 +126,7 @@ export function Board(props: BoardProps) {
     const { colors } = theme;
     return {
       board: { flex: 1, minHeight: 0 },
-      row: { flexGrow: 1, gap: 10, padding: compact ? 10 : 12, alignItems: "stretch" as const },
+      row: { flexGrow: 1, gap: TABLET_COLUMNS.gap, padding: compact || fitted ? TABLET_COLUMNS.pad : 12, alignItems: "stretch" as const },
       stack: { gap: 10, padding: 10, paddingBottom: 24 },
       nobody: { padding: compact ? 10 : 12, color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       column: { borderRadius: 10, padding: 6, gap: 8 },
@@ -159,7 +167,7 @@ export function Board(props: BoardProps) {
       footerText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
       footerList: { paddingHorizontal: compact ? 10 : 14, paddingBottom: 10, maxHeight: 260 },
     };
-  }, [theme, compact]);
+  }, [theme, compact, fitted]);
 
   function columnGround(id: ColumnId): string {
     return tint(columnTone(theme, id), 0.07, theme.colors.surface1);
@@ -305,38 +313,66 @@ export function Board(props: BoardProps) {
     );
   }
 
+  const foldedCount = shown.filter((id) => collapsed.includes(id)).length;
+  const openWidth = fitted ? fittedColumnWidth(size.width, shown.length - foldedCount, foldedCount) : COLUMN_WIDTH;
+  const widths = shown.map((id) => (collapsed.includes(id) ? COLLAPSED_WIDTH : openWidth));
+  const offsets = columnOffsets(widths, TABLET_COLUMNS);
+  const snapping = fitted ? { snapToOffsets: offsets, decelerationRate: "fast" as const, ...overflow.scrollProps } : {};
+  const row = (
+    <ScrollView horizontal style={{ flex: 1 }} contentContainerStyle={styles.row} {...snapping}>
+      {shown.map((id) => {
+        const entries = groups.get(id) ?? [];
+        const folded = collapsed.includes(id);
+        return (
+          <ColumnFrame
+            key={id}
+            width={folded ? COLLAPSED_WIDTH : openWidth}
+            opening={motion.opening.has(id)}
+            closing={motion.closing.includes(id)}
+            style={[styles.column, folded ? styles.columnFolded : null, { backgroundColor: columnGround(id) }]}
+          >
+            {renderHeader(id, folded, entries.length)}
+            {folded ? (
+              <Text style={styles.foldedTitle} numberOfLines={1}>
+                {COLUMNS[id].title}
+              </Text>
+            ) : (
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
+                {renderCards(entries)}
+              </ScrollView>
+            )}
+          </ColumnFrame>
+        );
+      })}
+    </ScrollView>
+  );
+  // Only a tablet's row has the fades over it; a wide board's tree is left exactly as it was.
+  const fittedRow = (
+    <View style={{ flex: 1 }}>
+      {row}
+      {overflow.edges.start ? (
+        <EdgeFade
+          side="start"
+          color={theme.colors.surface0}
+          theme={theme}
+          label="Previous column"
+          onPress={() => overflow.scrollTo(nextOffset(offsets, overflow.offset(), -1))}
+        />
+      ) : null}
+      {overflow.edges.end ? (
+        <EdgeFade
+          side="end"
+          color={theme.colors.surface0}
+          theme={theme}
+          label="Next column"
+          onPress={() => overflow.scrollTo(nextOffset(offsets, overflow.offset(), 1))}
+        />
+      ) : null}
+    </View>
+  );
   return frame(
     <View style={styles.board}>
-      {shown.length === 0 ? (
-        <View style={{ flex: 1 }}>{nobody}</View>
-      ) : (
-        <ScrollView horizontal style={{ flex: 1 }} contentContainerStyle={styles.row}>
-          {shown.map((id) => {
-            const entries = groups.get(id) ?? [];
-            const folded = collapsed.includes(id);
-            return (
-              <ColumnFrame
-                key={id}
-                width={folded ? COLLAPSED_WIDTH : COLUMN_WIDTH}
-                opening={motion.opening.has(id)}
-                closing={motion.closing.includes(id)}
-                style={[styles.column, folded ? styles.columnFolded : null, { backgroundColor: columnGround(id) }]}
-              >
-                {renderHeader(id, folded, entries.length)}
-                {folded ? (
-                  <Text style={styles.foldedTitle} numberOfLines={1}>
-                    {COLUMNS[id].title}
-                  </Text>
-                ) : (
-                  <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.body}>
-                    {renderCards(entries)}
-                  </ScrollView>
-                )}
-              </ColumnFrame>
-            );
-          })}
-        </ScrollView>
-      )}
+      {shown.length === 0 ? <View style={{ flex: 1 }}>{nobody}</View> : fitted ? fittedRow : row}
       {footer}
     </View>
   );

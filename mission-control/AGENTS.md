@@ -100,6 +100,9 @@ compile time. This file covers only what is specific to `mission-control`.
 | `client/type-scale.ts`        | Every font size, by role, at Paseo's default sizes; the one file to change when the theme carries Paseo's font setting. |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
 | `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
+| `client/layout-tier.ts`       | Phone, tablet or wide, from `compact` and the surface's width, and the sizes each derives: fitted board columns, snap offsets, a growing box's height. Pure. |
+| `client/edges.tsx`            | The safe-area edges on a phone or a tablet, and the fade (with an optional chevron button) that says a row or a transcript goes on. |
+| `client/growing-input.tsx`    | A text box that starts one line tall and grows with its text, sized from an invisible twin. |
 
 ## The plugin never dispatches a crewmate
 
@@ -200,7 +203,8 @@ reported done is still alive and In flight until Mission Control lands it and mo
 keeps the status line and the item's hold, so "Done: PR …" still reads on it from the Idle column.
 
 The board draws only columns with a card in them, folded or not (`board.tsx`), as one row of fixed-width
-columns in `BOARD_ORDER` that scrolls sideways, each column scrolling on its own; a phone stacks them.
+columns in `BOARD_ORDER` that scrolls sideways, each column scrolling on its own; a phone stacks them, and a
+tablet fits the columns to its pane (see *Phones, tablets and foldables*).
 Within a column the user's drag order comes first (`client/order.ts`), then the daemon's order.
 
 **Changes move rather than jump.** `board-motion.ts` remembers, in module scope, which column every card was
@@ -930,26 +934,56 @@ in 0.9. A daemon that changes the message answers with a timeout, which is logge
 back to waiting in "Ready to review". The follow-up is an upstream API — an `agents.clearAttention`
 (or `workspaces.clearAttention`) on `PaseoApi` — and moving both callers onto it.
 
-## Phones: the home indicator and the keyboard
+## Phones, tablets and foldables
 
-The host pads a surface's top, under its header, and nothing else: not the home indicator, and not
-the keyboard — Paseo moves its own composer with `react-native-keyboard-controller` and
-`react-native-safe-area-context`, and neither is a module a plugin may import. So the chat does both
+The screen has three layouts (`client/layout-tier.ts`), picked from the host's `compact` and the
+surface's own measured width, never from the device: a foldable is a phone folded and a small tablet
+open, and a desktop window dragged narrow is the same layout as either.
+
+- **phone** (`compact`): one pane at a time behind a tab bar at the foot, where a thumb reaches it. The
+  header is one row, the coordinator's state and the buttons, since the host's own header already says
+  "Mission Control" above it.
+- **tablet** (not compact, narrower than `TABLET_MAX_WIDTH`, 1040 pt): chat beside the board, the chat
+  foldable from the header to its rail. Board columns are fitted to the pane so two whole ones show
+  (`fittedColumnWidth`), the row snaps to a column's start on iOS and Android, and an end with more beyond
+  it fades with a chevron button that moves a column along. The suggestion chips fade at a cut end too.
+- **wide**: everything else, drawn exactly as before. 1040 is below a 1366 pt window with Paseo's 320 pt
+  sidebar open (a 1046 pt surface), so desktops stay wide; a desktop window narrower than about 1360 pt
+  with the sidebar open gets the tablet layout, which is the point.
+
+On a phone or a tablet a card's view stacked over its worker shows one or the other, the whole pane each:
+the card folds to a "Details" row by default, so the transcript gets the room, and the worker's box is
+one line beside Send that grows with the words (`client/growing-input.tsx`). A box cannot be sized from
+its own content height, which a web textarea never reports below its own height, so an invisible `Text`
+twin lays the words out at the same width and the box takes its height. The transcript fades at its top
+while scrolled, so a row cut by the header reads as scrolled past. Mission Control's composer grows the
+same way. Buttons there are at least 44 pt (`touch` on `IconButton` and `Segmented`); small marks that
+cannot grow (a chip, the card's chat button, Send) get `hitSlop` instead.
+
+The host pads a surface's top, under its header, and nothing else: not the home indicator, not the sides
+in landscape, and not the keyboard. Paseo moves its own composer with `react-native-keyboard-controller`
+and `react-native-safe-area-context`, and neither is a module a plugin may import. So the screen does it
 itself, with what `react-native` offers:
 
-- **The home indicator.** The composer is wrapped in `SafeAreaView` (deprecated in React Native
-  0.81, still present). It replaces the padding in its own style, which is why the composer's padding
-  is on the view inside it. It does nothing on Android.
-- **The keyboard.** `useKeyboardOverlap` (`client/keyboard.ts`) measures the chat pane with
-  `measureInWindow` — the space the keyboard's frame is reported in — and the pane pads its bottom
+- **The safe area.** The screen's root is `SafeEdges` (`client/edges.tsx`): on iOS React Native's
+  `SafeAreaView` (deprecated in 0.81, still present), which pads only the edges the view overlaps, so a
+  composer's own `SafeAreaView` nested inside it adds nothing; on the web `env(safe-area-inset-*)` on the
+  left, right and bottom only, since the web renderer's `SafeAreaView` pads the top too and the host has
+  already padded it; on Android nothing. A wide layout asks for no edges on the web, and the root is the
+  same element in every layout, so crossing one does not remount the screen. **Nothing here can see a
+  system overlay that is not reported as a safe-area inset**, such as a foldable's floating status
+  cluster; if iOS reports it, the root pads clear of it.
+- **The keyboard.** `useKeyboardOverlap` (`client/keyboard.ts`) measures the chat pane, and a card's view,
+  with `measureInWindow` (the space the keyboard's frame is reported in), and the view pads its bottom
   by the overlap. `KeyboardAvoidingView` is not used because it measures against its parent, which
-  inside the host's screen needs an offset nobody here knows. Lifted above the keyboard, the composer
-  no longer overlaps the home indicator, so its safe-area padding drops to zero instead of stacking.
+  inside the host's screen needs an offset nobody here knows. A phone's tab bar sits under the keyboard,
+  and the overlap measured is only the part over the pane, so the composer lands just above it.
 - **The lists with text boxes in them** — the compact board, the panels, the launch screen,
   settings — use `automaticallyAdjustKeyboardInsets`, iOS-only, which insets a `ScrollView` and
   scrolls the focused box into view.
 
-All of it was written against a screenshot and has to be checked on a device.
+All of it was checked in a browser at phone, foldable and tablet sizes, not on a device: the keyboard and
+the iOS insets have to be looked at on one.
 
 ## Attachments go the way Paseo's composer sends them
 

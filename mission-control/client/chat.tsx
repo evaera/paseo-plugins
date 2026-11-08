@@ -15,7 +15,9 @@ import {
   ScrollView,
   Text,
   View,
+  type StyleProp,
   type TextInput as NativeTextInput,
+  type ViewStyle,
 } from "react-native";
 
 import type { AgentSummary, CoordinatorCommand, Suggestion } from "../shared/fleet";
@@ -49,19 +51,39 @@ import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
 import { canAttachFiles, pickFiles, receiveFiles, type OfferedFile } from "./web";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
+import { useLayoutTier } from "./layout-tier";
+import { GrowingSlot, useGrowingHeight } from "./growing-input";
 
 /** A run of tool calls shows this many before folding the rest behind a count. */
 const TOOL_RUN_VISIBLE = 2;
 
 /**
- * The composer's height; longer text scrolls inside it. Fixed rather than
- * grown with the text: on the web renderer a textarea's reported content
- * height is never less than its own height, so a box sized from it can grow
- * but never shrink back.
+ * The composer's height on a wide layout; longer text scrolls inside it. On a
+ * phone or a tablet the box starts one line tall and grows with the text
+ * instead (`./growing-input`), up to `INPUT_MAX_LINES`, so an empty composer
+ * leaves the transcript the room.
  */
 const INPUT_HEIGHT = 72;
 const INPUT_HEIGHT_COMPACT = 56;
+const INPUT_MAX_LINES = 6;
 
+
+/**
+ * The composer's outer view: React Native's SafeAreaView, so the composer
+ * clears the home indicator. It is the one inset source a plugin can import,
+ * since the safe-area-context library is not among the host's modules.
+ * Deprecated in React Native 0.81 but present.
+ *
+ * On iOS it pads only the edges it overlaps and replaces any padding in its
+ * own style, which is why the composer's padding is on the view inside; inside
+ * a screen that has padded its own edges it overlaps nothing. The web renderer
+ * pads by the browser's safe-area insets wherever the view sits (zero on a
+ * desktop), so without `inset` that padding is cleared instead. Always the same
+ * element, so crossing a layout tier does not remount the composer.
+ */
+function ComposerFrame({ inset, style, children }: { inset: boolean; style: StyleProp<ViewStyle>; children: ReactNode }) {
+  return <SafeAreaView style={inset ? style : [style, { padding: 0 }]}>{children}</SafeAreaView>;
+}
 
 type Group = { key: string; row: TranscriptRow } | { key: string; tools: Extract<TranscriptRow, { kind: "tool" }>[] };
 
@@ -223,6 +245,14 @@ export function CoordinatorChat({
     if (sending) follow.pin();
   }, [sending]);
   const submitOnEnter = Platform.OS === "web" && !compact;
+  const tier = useLayoutTier();
+  const growing = useGrowingHeight({
+    text: draft,
+    fontSize: FONT_SIZE.content,
+    lineHeight: lineHeightFor(FONT_SIZE.content),
+    maxLines: INPUT_MAX_LINES,
+    enabled: tier !== "wide",
+  });
   /** The timeline's snapshot is re-read with every stream event; the board's poll is the fallback. */
   const status = timeline.agent?.status ?? coordinator.status;
   const usage = timeline.agent?.lastUsage;
@@ -536,16 +566,12 @@ export function CoordinatorChat({
         {follow.away ? <JumpToEnd theme={theme} onPress={follow.jumpToEnd} /> : null}
       </View>
       {/*
-        The host pads a surface's top, under its header, but not its bottom, so
-        on a phone the composer would sit on the home indicator. React Native's
-        own SafeAreaView is the one inset source a plugin can import — the
-        safe-area-context library is not among the host's modules. It pads
-        only the edges it overlaps, and it replaces any padding in its own
-        style, which is why the composer's padding is on the view inside.
-        Deprecated in React Native 0.81 but present; the web renderer pads by
-        the browser's safe-area insets, which are zero on a desktop.
+        The host pads a surface's top, under its header, but not its bottom.
+        On a phone or a tablet the screen's root keeps everything inside the
+        safe area (`SafeEdges`); on a wide layout, an iPad or a panel, the
+        composer pads itself (`ComposerFrame`).
       */}
-      <SafeAreaView style={styles.composerFrame}>
+      <ComposerFrame inset={tier === "wide"} style={styles.composerFrame}>
         <View style={styles.composer}>
           <SuggestionChips
             suggestions={suggestions}
@@ -590,6 +616,7 @@ export function CoordinatorChat({
                 ))}
               </View>
             )}
+            <GrowingSlot twin={growing.twin}>
             <TextInput
               ref={input}
               value={draft}
@@ -607,8 +634,9 @@ export function CoordinatorChat({
                     }
                   : undefined
               }
-              style={styles.input}
+              style={growing.height === undefined ? styles.input : [styles.input, { height: growing.height }]}
             />
+            </GrowingSlot>
             <View style={styles.toolbar}>
               <View style={styles.toolbarStart}>
                 {canAttachFiles ? (
@@ -661,7 +689,7 @@ export function CoordinatorChat({
             </View>
           </View>
         </View>
-      </SafeAreaView>
+      </ComposerFrame>
       {dragging ? (
         /*
           Over the whole chat, transcript through composer, since the whole
