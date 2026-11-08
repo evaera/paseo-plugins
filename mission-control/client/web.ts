@@ -8,7 +8,8 @@
  * The exports are the pointer tracking behind the chat pane's resize drag —
  * copied from `github-board/client/web.ts`, there is no workspace root to share
  * it from — and a card's drag within its column, the chat's file picker,
- * paste and drop, whether the window has the focus, and copying a run embed's command.
+ * paste and drop, whether the window has the focus, copying a run embed's command, and holding an
+ * image back until it scrolls near the view.
  */
 import { Platform } from "react-native";
 
@@ -368,4 +369,34 @@ export async function copyText(text: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+interface ObserverGlobals {
+  IntersectionObserver?: new (
+    callback: (entries: readonly { isIntersecting: boolean }[]) => void,
+    options?: { rootMargin?: string },
+  ) => { observe(node: unknown): void; disconnect(): void };
+}
+
+/**
+ * Calls `onNear` once `node` (a view's element) comes within a screen or so of the viewport, so a
+ * long chat of screenshots fetches only what the reader scrolls to. Native, and a browser without
+ * `IntersectionObserver`, call it at once. Returns the cancel.
+ */
+export function whenNearView(node: unknown, onNear: () => void): () => void {
+  const Observer = (globalThis as ObserverGlobals).IntersectionObserver;
+  if (Platform.OS !== "web" || Observer === undefined || typeof node !== "object" || node === null) {
+    onNear();
+    return () => {};
+  }
+  const observer = new Observer(
+    (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      onNear();
+    },
+    { rootMargin: "800px" },
+  );
+  observer.observe(node);
+  return () => observer.disconnect();
 }

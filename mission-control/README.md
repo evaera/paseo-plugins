@@ -65,7 +65,14 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
   Mission Control's agent in Paseo for the whole session, every tool call and its output. The chat follows new
   messages while you are at the bottom; scroll up to read, and the round button at the bottom brings
   you back. A file in the home that Mission Control names in a reply is a link that opens it in the
-  Files view.
+  Files view; a file in one of your Paseo projects is a link that shows it in Explorer or Finder. Plain
+  paths, `C:\` paths, `file:///` URLs and Markdown links all work, in tables and bold text too.
+- **Images** — screenshots and other pictures Mission Control puts in a reply (`![caption](path)`) are
+  drawn in the chat, scaled to fit, several in a row side by side; press one to see it full size. They
+  are read from Mission Control's home or one of your Paseo projects, never anywhere else, or loaded
+  from an `https://` address. PNG, JPEG, GIF and WebP up to 8 MB each; anything else shows a note saying
+  why. Images and links work the same in a worker's transcript in its card. Paseo's own agent view
+  already draws Markdown images by itself.
 - **How full its memory is** — the ring at the end of the chat's buttons shows how much of Mission
   Control's context window is used, the way Paseo's own chat does: amber from 70%, red past 90%. Hover
   over it, or tap it on a phone, for the share and the token counts.
@@ -140,7 +147,7 @@ Mission Control something about it.
 ## Mission Control's home
 
 The **Files** view — next to the crew board, or its own tab on a phone — shows everything in the home
-and opens any text file for editing, with a preview for Markdown. Cmd/Ctrl+S saves on a desktop. The
+and opens any text file for editing, with a preview for Markdown, and shows images. Cmd/Ctrl+S saves on a desktop. The
 Mission Control writes these files too, so a save never silently replaces its newer version: you are told
 it changed, and choose to load theirs or overwrite it with yours.
 

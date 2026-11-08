@@ -14,6 +14,23 @@ Notable changes to `mission-control`. The format follows
   it running, then its exit code and last lines, with Open terminal, Stop and a copy button. A project
   Paseo does not have is refused by name. The charter tells Mission Control to offer one for trying
   something out, beside the same command in plain text.
+- **Images in replies.** A Markdown image, `![caption](path)`, in Mission Control's chat or a worker's
+  transcript is drawn inline, fitted to the column, with its caption; several on consecutive lines sit
+  side by side, and a press opens one full size. It can be a file in Mission Control's home (relative or
+  absolute), a file inside a registered Paseo project (`C:\…`, `C:/…` or `file:///…`), or an `https://`
+  image. The plugin sends local files only from the home and the project roots, checked through `..`
+  and symlinks, as PNG, JPEG, GIF or WebP up to 8 MB, fetched as they scroll into view. A missing,
+  outside, too large or unsupported image shows a placeholder saying which. The charter tells Mission
+  Control when to show a screenshot inline.
+- **Images in the Files view**, instead of "not a text file". A Markdown preview draws its images and
+  links relative to the file's own folder.
+
+### Fixed
+
+- **Links in replies.** Windows paths (`C:\Users\…`), `file:///` URLs and `name.md:12` are linked; a link
+  inside bold text works; a URL with parentheses keeps them; a link to a file in a registered Paseo
+  project shows it in the file manager; and a link to a missing file reads as its text instead of
+  opening a broken address in the browser. Worker transcripts and the Files preview link files too.
 
 ## [1.0.0] - 2026-11-06
 

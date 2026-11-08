@@ -1,7 +1,7 @@
 /**
  * Mission Control's home, as files: browse it, read any text file, edit and
  * save it — the charter, the user's standing orders, the backlog, the
- * briefs and reports.
+ * briefs and reports — and look at its images.
  *
  * Mission Control writes these same files, so an edit is saved against the
  * version it was opened at: a file that changed since is refused, and the
@@ -20,10 +20,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 
 import { listHomeFiles, readHomeFile, writeHomeFile, type HomeEntry } from "../shared/files";
+import { isImagePath } from "../shared/local-path";
 import { relativeTime } from "./format";
 import { useKeyboardOverlap } from "./keyboard";
 import { isSaveKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
+import { MarkdownImage } from "./markdown-image";
+import { useFileLinks } from "./use-file-links";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { Banner, IconButton, MONOSPACE, errorText } from "./ui";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
@@ -124,8 +127,15 @@ export function FilesView({
   }
 
   function load(path: string, options: { quiet?: boolean } = {}): void {
-    if (options.quiet !== true) setLoadingPath(path);
     setError(null);
+    // An image is drawn, not read as text: `MarkdownImage` asks for its bytes, through the same confinement.
+    if (isImagePath(path)) {
+      const modifiedMs = listing.data?.entries.find((entry) => entry.path === path)?.modifiedMs ?? 0;
+      void queryClient.invalidateQueries({ queryKey: ["mission-control", "image", path] });
+      setOpen({ kind: "image", path, modifiedMs });
+      return;
+    }
+    if (options.quiet !== true) setLoadingPath(path);
     read({ path })
       .then((result) => {
         if (result.content === null) {
@@ -189,7 +199,7 @@ export function FilesView({
   // Mission Control changed the open file on disk. Unedited, it is simply
   // reloaded; edited, the user is told and chooses.
   const onDisk = listing.data?.entries.find((entry) => open !== null && entry.path === open.path);
-  const changedOnDisk = open?.kind === "text" && onDisk !== undefined && onDisk.modifiedMs !== open.modifiedMs;
+  const changedOnDisk = (open?.kind === "text" || open?.kind === "image") && onDisk !== undefined && onDisk.modifiedMs !== open.modifiedMs;
   useEffect(() => {
     if (changedOnDisk && !dirty && open !== null && loadingPath === null) load(open.path, { quiet: true });
     // Keyed on the change alone: `load` and `open` are new every render, and
@@ -288,6 +298,19 @@ export function FilesView({
 
   const crumbs = dir === "" ? [] : dir.split("/");
 
+  /** Opens a home file a preview links, in its folder, after the user's say on unsaved changes. */
+  function openLinked(path: string): void {
+    guarded(`open ${path}`, () => {
+      setDir(parentOf(path));
+      load(path);
+    });
+  }
+  const previewing = open?.kind === "text" && preview && isMarkdown(open.path);
+  const previewSource = previewing && open?.kind === "text" ? open.draft : null;
+  const previewDir = open === null ? "" : parentOf(open.path);
+  const previewMessages = useMemo(() => (previewSource === null ? [] : [previewSource]), [previewSource]);
+  const previewLinks = useFileLinks(previewMessages, { baseDir: previewDir }, previewSource !== null);
+
   const listPane = (
     <View style={styles.listPane}>
       <View style={styles.listHeader}>
@@ -366,7 +389,7 @@ export function FilesView({
             }
           >
             <Icon
-              name={entry.kind === "dir" ? "Folder" : isMarkdown(entry.name) ? "FileText" : "File"}
+              name={entry.kind === "dir" ? "Folder" : isMarkdown(entry.name) ? "FileText" : isImagePath(entry.name) ? "FileImage" : "File"}
               size={14}
               color={entry.kind === "dir" ? theme.colors.accent : theme.colors.foregroundMuted}
             />
@@ -437,6 +460,12 @@ export function FilesView({
           : `${open.path} is ${formatSize(open.size)}, too large to open here.`}
       </Text>
     );
+  } else if (open.kind === "image") {
+    editorBody = (
+      <ScrollView contentContainerStyle={styles.preview}>
+        <MarkdownImage key={`${open.path}@${open.modifiedMs}`} image={{ alt: "", src: open.path }} theme={theme} maxHeight={2000} />
+      </ScrollView>
+    );
   } else if (preview && isMarkdown(open.path)) {
     editorBody = (
       <ScrollView contentContainerStyle={styles.preview}>
@@ -445,6 +474,9 @@ export function FilesView({
           theme={theme}
           fontSize={FONT_SIZE.content}
           onOpenLink={(url) => void openExternalUrl(url).catch((caught: unknown) => toast.error(errorText(caught)))}
+          files={previewLinks}
+          onOpenFile={openLinked}
+          baseDir={previewDir}
         />
       </ScrollView>
     );

@@ -716,6 +716,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
         }
         onChanged={refresh}
         toCoordinator={toCoordinator}
+        onOpenFile={openFile}
       />
     );
   const crew = <BoardTasksContext.Provider value={boardTasks}>{crewView}</BoardTasksContext.Provider>;

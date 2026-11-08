@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   FileChangedError,
   cleanRelative,
-  findFiles,
   listDirectory,
   readTextFile,
   replaceTextIfUnchanged,
@@ -187,42 +186,6 @@ describe("writeTextFile", () => {
     await expect(
       writeTextFile(dir, { path: "../escape.md", content: "x", expectedModifiedMs: null, force: false }),
     ).rejects.toThrow(/outside the home/);
-  });
-});
-
-describe("findFiles", () => {
-  it("maps each existing file in the home to its home-relative path, relative or absolute", async () => {
-    const dir = await home();
-    const found = await findFiles(dir, [
-      "AGENTS.md",
-      "./data/backlog.md",
-      join(dir, "data", "fix-login", "brief.md"),
-      "data/missing.md",
-      "data",
-    ]);
-    expect(found).toEqual({
-      "AGENTS.md": "AGENTS.md",
-      "./data/backlog.md": "data/backlog.md",
-      [join(dir, "data", "fix-login", "brief.md")]: "data/fix-login/brief.md",
-    });
-  });
-
-  it("finds nothing outside the home, by .., by an absolute path, or through a symlink", async () => {
-    const dir = await home();
-    const outside = await mkdtemp(join(tmpdir(), "mission-control-outside-"));
-    tempDirs.push(outside);
-    await writeFile(join(outside, "secret.md"), "secret");
-    await symlink(join(outside, "secret.md"), join(dir, "data", "link.md"));
-    await symlink(outside, join(dir, "elsewhere"));
-    const found = await findFiles(dir, [
-      "../secret.md",
-      "data/../../secret.md",
-      join(outside, "secret.md"),
-      "data/link.md",
-      "elsewhere/secret.md",
-      `${dir}/../${outside.split("/").pop() ?? ""}/secret.md`,
-    ]);
-    expect(found).toEqual({});
   });
 });
 

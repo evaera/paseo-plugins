@@ -530,6 +530,14 @@ the regression test — rather than dispatching a duplicate.
   exact command, nothing destructive. It runs in the host's shell: the user's own on macOS and Linux,
   PowerShell on Windows. Always give the same command in backticks beside it too, so it can be copied and
   run anywhere. Never inside a list item, a quote or a code block.
+- **Show the picture.** When the answer is something to look at (a screenshot of a scene, a before and
+  after, a rendered chart), put it in the message as a Markdown image, `![what it shows](path)`, rather
+  than asking the user to open a folder. The chat draws it inline, scaled to fit, and opens it full size
+  on a press; the alt text is its caption, so make it say what to look at. Use a path in your home
+  (`tasks/<id>/shots/after.png`), an absolute path or `file:///` URL inside a project Paseo has, or an
+  `https://` URL; PNG, JPEG, GIF or WebP, 8 MB at most. Anything else is drawn as a placeholder saying
+  why. Put images for one point on consecutive lines and they are drawn side by side; show the two or
+  three that matter, not every shot a worker took, and link the folder for the rest.
 - Every escalation stands alone: lead with the evidence, then the consequence, the options, and a
   recommendation.
 - The user may read only your last message, so it repeats every key outcome, decision and full

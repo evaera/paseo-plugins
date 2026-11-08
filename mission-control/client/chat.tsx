@@ -4,9 +4,8 @@
  * one press away in Paseo itself, which is what the Open button is for.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
+import { openExternalUrl } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   Image,
@@ -19,7 +18,6 @@ import {
   type TextInput as NativeTextInput,
 } from "react-native";
 
-import { MAX_FILE_CANDIDATES, findHomeFiles } from "../shared/files";
 import type { AgentSummary, CoordinatorCommand, Suggestion } from "../shared/fleet";
 import {
   admit,
@@ -36,7 +34,7 @@ import { FlashWash } from "./flash";
 import { avatarIcon } from "./avatar";
 import { aboutMessage, chatAbout } from "./chat-about";
 import { drafts } from "./draft";
-import { lookupIn, recentCandidates } from "./file-links";
+import { useFileLinks } from "./use-file-links";
 import { useFollowEnd } from "./use-follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { CoordinatorControls } from "./coordinator-controls";
@@ -81,31 +79,6 @@ function groupRows(rows: readonly TranscriptRow[]): Group[] {
     }
   }
   return groups;
-}
-
-/**
- * Which of the paths Mission Control's replies name are files in its home — the
- * daemon's say, since only it can see the disk. Asked once for the whole
- * conversation, the most recently mentioned kept past the cap, and again now
- * and then, so a file Mission Control writes after naming it becomes a link.
- * Until the answer arrives, and if it fails, the paths are text.
- */
-function useHomeFileLinks(rows: readonly TranscriptRow[]) {
-  const find = useRpc(findHomeFiles);
-  const candidates = useMemo(
-    () => recentCandidates(rows.flatMap((row) => (row.kind === "coordinator" ? [row.text] : [])), MAX_FILE_CANDIDATES),
-    [rows],
-  );
-  const found = useQuery({
-    queryKey: ["mission-control", "files", "find", candidates],
-    queryFn: () => find({ paths: candidates }),
-    enabled: candidates.length > 0,
-    refetchInterval: 30_000,
-    // A new mention asks again; the links already drawn stay while it does.
-    placeholderData: (previous) => previous,
-  });
-  const answer = found.data?.files;
-  return useMemo(() => lookupIn(answer ?? {}), [answer]);
 }
 
 export function CoordinatorChat({
@@ -181,7 +154,8 @@ export function CoordinatorChat({
     if (looking && (seenSeq === null || latest > seenSeq)) onSeen(latest);
     // `rows` changes with `latest`, which is what matters here.
   }, [looking, latest, seenSeq]);
-  const files = useHomeFileLinks(rows);
+  const replies = useMemo(() => rows.flatMap((row) => (row.kind === "coordinator" ? [row.text] : [])), [rows]);
+  const files = useFileLinks(replies);
   const follow = useFollowEnd();
   /** What Mission Control is waiting on — a question, a permission, a plan. */
   const { pending, respond } = usePendingRequests(coordinator.id, timeline.agent?.pendingPermissions, follow.pin);

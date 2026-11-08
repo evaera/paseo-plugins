@@ -65,14 +65,59 @@ export const MAX_FILE_CANDIDATES = 500;
 export const MAX_FILE_PATH_LENGTH = 1024;
 
 /**
- * Which of the paths the chat mentions are files in the home, for linking
- * them. A candidate is relative to the home or absolute under it; the answer
- * maps each one that is an existing file to its home-relative path, the one
- * the Files view opens, and leaves out the rest — anything outside the home,
- * through `..` or a symlink, anything missing, and folders.
+ * Which of the paths the chat mentions are files, for linking them. A candidate is relative to the
+ * home, or absolute (either slash, or a `file:` URL decoded by `localPathOf`). `files` maps each one
+ * that is an existing file in the home to its home-relative path, the one the Files view opens;
+ * `projectFiles` maps each existing file inside a registered Paseo project's root, and not in the
+ * home, to its absolute path. Everything else is left out: outside every root, lexically or through
+ * a symlink, missing, or a folder.
  */
 export const findHomeFiles = defineRpc({
   name: "mission-control.files.find",
   input: z.object({ paths: z.array(z.string().max(MAX_FILE_PATH_LENGTH)).max(MAX_FILE_CANDIDATES) }),
-  output: z.object({ files: z.record(z.string(), z.string()) }),
+  output: z.object({ files: z.record(z.string(), z.string()), projectFiles: z.record(z.string(), z.string()) }),
+});
+
+/**
+ * The largest image the chat is sent. The bytes travel base64 in one RPC answer and are decoded at
+ * full size, so this is what keeps a conversation of screenshots from stalling; a 1920x1080 PNG is
+ * one to three megabytes.
+ */
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/** Why an image is not shown, each with its own placeholder. */
+export const ImageRefusalSchema = z.enum(["missing", "outside", "too-large", "unsupported", "not-a-file"]);
+export type ImageRefusal = z.infer<typeof ImageRefusalSchema>;
+
+/**
+ * A local image for a Markdown `![alt](src)`, through the same roots as `mission-control.files.find`:
+ * the home (relative or absolute) and registered project roots, never anywhere else. The type comes
+ * from the file's bytes, not its name; width and height are read from its header, null when it does
+ * not say.
+ */
+export const readImage = defineRpc({
+  name: "mission-control.files.image",
+  input: z.object({ src: z.string().min(1).max(MAX_FILE_PATH_LENGTH) }),
+  output: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("ok"),
+      mimeType: z.string(),
+      base64: z.string(),
+      width: z.number().nullable(),
+      height: z.number().nullable(),
+      size: z.number(),
+    }),
+    z.object({ status: z.literal("refused"), reason: ImageRefusalSchema, size: z.number().nullable() }),
+  ]),
+});
+
+/**
+ * Shows a file in the daemon machine's file manager, selected: a project file a reply links, which
+ * the Files view (the home only) cannot open and the plugin API gives no way to open in Paseo's own
+ * file panel. Refused outside the home and the registered project roots.
+ */
+export const revealFile = defineRpc({
+  name: "mission-control.files.reveal",
+  input: z.object({ path: z.string().min(1).max(MAX_FILE_PATH_LENGTH) }),
+  output: z.object({}),
 });

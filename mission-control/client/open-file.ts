@@ -1,7 +1,9 @@
 /** The file open in the Files view. Pure, so the save bookkeeping is testable. */
 export type OpenFile =
   | { kind: "text"; path: string; modifiedMs: number; saved: string; draft: string }
-  | { kind: "unreadable"; path: string; reason: "binary" | "tooLarge"; size: number };
+  | { kind: "unreadable"; path: string; reason: "binary" | "tooLarge"; size: number }
+  /** An image, drawn rather than edited; `modifiedMs` is the listing's, so a rewrite on disk draws it again. */
+  | { kind: "image"; path: string; modifiedMs: number };
 
 /**
  * The open file once `content` has been saved to `path` at `modifiedMs`. The

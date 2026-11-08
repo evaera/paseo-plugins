@@ -33,6 +33,7 @@ import { agentStatusLabel, agentStatusTone, contextPercent, contextTone, modelNa
 import { useLocalHost } from "./local-host";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
+import { useFileLinks } from "./use-file-links";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { TaskNotes } from "./task-notes";
 import { Chip, IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
@@ -78,6 +79,7 @@ export function CardView({
   onChanged,
   toCoordinator,
   initialDraft = null,
+  onOpenFile = null,
 }: {
   /** Null once the card has left the board: its worker ended, its task dropped. */
   card: FleetCard | null;
@@ -90,6 +92,8 @@ export function CardView({
   toCoordinator: CoordinatorAsk | null;
   /** A step for the card to open on, from its context menu. */
   initialDraft?: DraftKind | null;
+  /** Opens a home file in the Files view, for a link in the worker's transcript; null links none. */
+  onOpenFile?: ((path: string) => void) | null;
 }) {
   const [width, setWidth] = useState(0);
   const agent = card?.agent ?? null;
@@ -198,6 +202,7 @@ export function CardView({
               revision={`${agent.updatedAt}:${agent.pendingPermissions}`}
               theme={theme}
               compact={compact}
+              onOpenFile={onOpenFile}
               onOpen={onOpen}
             />
             </DebriefSelfContext.Provider>
@@ -435,6 +440,7 @@ function ActivityTranscript({
   theme,
   compact,
   onOpen,
+  onOpenFile,
 }: {
   /** The worker as the board last saw it, for the header; null draws none. */
   agent: AgentSummary | null;
@@ -449,10 +455,15 @@ function ActivityTranscript({
   theme: PluginTheme;
   compact: boolean;
   onOpen: (() => void) | null;
+  onOpenFile: ((path: string) => void) | null;
 }) {
   const toast = useToast();
   const timeline = useAgentTimeline(agentId, revision, TIMELINE_LIMIT, serverId);
   const rows = useMemo(() => activityRows(timeline.entries), [timeline.entries]);
+  // A worker on another host names files on that machine, which this host's daemon cannot read or vouch for.
+  const local = serverId === null;
+  const replies = useMemo(() => rows.flatMap((row) => (row.kind === "reply" ? [row.text] : [])), [rows]);
+  const files = useFileLinks(replies, {}, local && onOpenFile !== null);
   const follow = useFollowEnd();
   const { pending, respond } = usePendingRequests(agentId, timeline.agent?.pendingPermissions, follow.pin, serverId);
   /** Tool rows showing their detail, and prompts and reasoning shown whole, by row key. */
@@ -572,7 +583,19 @@ function ActivityTranscript({
         );
       }
       case "reply":
-        return <Markdown source={row.text} theme={theme} fontSize={FONT_SIZE.content} relaxed onOpenLink={openLink} debriefButtons />;
+        return (
+          <Markdown
+            source={row.text}
+            theme={theme}
+            fontSize={FONT_SIZE.content}
+            relaxed
+            onOpenLink={openLink}
+            files={files}
+            onOpenFile={local ? onOpenFile : null}
+            localImages={local}
+            debriefButtons
+          />
+        );
       case "tool": {
         const expanded = open.has(row.key) && row.detail !== null;
         return (

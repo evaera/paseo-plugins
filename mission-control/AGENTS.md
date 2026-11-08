@@ -88,11 +88,15 @@ compile time. This file covers only what is specific to `mission-control`.
 | `client/launch.tsx`           | What shows before there is a Mission Control agent: launch one, or adopt a running agent.             |
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
 | `client/settings-screen.tsx`  | Settings › Plugins › Mission Control.                                                            |
-| `client/markdown.tsx`         | A trimmed copy of `github-board`'s renderer, for Mission Control's replies.                 |
+| `client/markdown.tsx`         | The renderer for Mission Control's replies, begun as a trimmed copy of `github-board`'s; a block's images go in a gallery under its text. |
+| `client/markdown-image.tsx`, `image-source.ts` | A Markdown image drawn: fetched near the view, two at a time, fitted, a placeholder for a refusal, full size in a `Modal`. The source and size rules are pure. |
+| `shared/local-path.ts`        | `file:` URLs, Windows and relative paths read the same way by both halves; the image extensions. Pure. |
+| `server/local-files.ts`, `image-header.ts` | What the app may be sent: home and project roots only, an image's bytes and type, revealing a project file. |
+| `client/use-file-links.ts`    | The `mission-control.files.find` query a chat, a worker's transcript and the Files preview share. |
 | `client/markdown-parse.ts`    | The renderer's blocks, and the inline text in them — what `file-links.ts` walks. Pure.     |
 | `client/run-embed.tsx`, `run-tint.ts` | A `[[run: …]]` embed's pill: the command tinted in a code block, the run button, the run's state. |
 | `server/runs.ts`, `run-launch.ts` | A run embed's command in a Paseo terminal: the project it names, the wrapper that records its exit code, its status. |
-| `client/file-links.ts`        | A reply's inline tokens, and the home files it names that the daemon (`mission-control.files.find`) says exist. Pure. |
+| `client/file-links.ts`        | A reply's inline tokens (text, bold, code, links, images), and the files it names that the daemon (`mission-control.files.find`) says exist. Pure. |
 | `client/type-scale.ts`        | Every font size, by role, at Paseo's default sizes; the one file to change when the theme carries Paseo's font setting. |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
 | `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
@@ -768,15 +772,56 @@ folder and opens any text file in an editor, with a Markdown preview for `.md`. 
   editor then offers *Overwrite*, which sends `force`. A file that changes on disk while open and
   unedited is reloaded quietly, off the list's ten-second poll. A save is a temporary file renamed over
   the old one, so Mission Control never reads half of it.
-- **Text only, up to a megabyte.** A NUL byte in the first 8 KB marks a file binary; either kind is
-  listed but not opened.
+- **Text up to a megabyte, and images.** A NUL byte in the first 8 KB marks a file binary; either kind is
+  listed but not opened as text. A PNG, JPEG, GIF or WebP, by extension, is drawn instead, through
+  `mission-control.files.image` (see *Images and links in replies*).
 - **The chat links only what the daemon vouches for.** `client/file-links.ts` picks anything
   path-shaped out of Mission Control's replies — plain text, inline code, a Markdown link's target,
-  never a fenced code block; a `/` or an extension, a trailing `:line` dropped, at most 1024
-  characters — and `mission-control.files.find` answers which are files, through the same confinement,
-  absolute paths included when they sit under the home. One query for the whole conversation, the
-  500 most recently mentioned paths, re-asked every 30 s so a file named before it was written
-  becomes a link. Opening one unhides a hidden right pane. The user's messages are plain `Text`, not the Markdown renderer, so they are not linked.
+  never a fenced code block; a slash either way or an extension, a trailing `:line` or `#L12` dropped,
+  a `file:` URL decoded, at most 1024 characters — and `mission-control.files.find` answers which are
+  files in the home and which are files in a registered project (`server/local-files.ts`). One query
+  for the whole conversation, the 500 most recently mentioned paths, re-asked every 30 s so a file
+  named before it was written becomes a link (`useFileLinks`). A home file opens in Files, unhiding a
+  hidden right pane; a project file is shown selected in the daemon machine's file manager
+  (`mission-control.files.reveal`), because the plugin API has no way to open one in Paseo's own file
+  panel. A worker's transcript links the same way, unless the worker is on another host, and the Files
+  preview links relative to the file's folder. The user's messages are plain `Text`, not the Markdown
+  renderer, so they are not linked.
+
+## Images and links in replies
+
+`inlineTokens` (`client/file-links.ts`) is a scanner, not a regex: CommonMark's shape, loosened where agents
+write otherwise. A link or image target runs to its matching `)`, so `Foo_(bar)` survives, and may hold
+spaces (`C:\My Shots\a.png`), a `<…>` form and a title; a backslash escapes Markdown's punctuation but never
+`.` or `\`, so a Windows path in prose keeps every character; `**…**` is scanned again inside, so a link in
+bold is a link; nothing crosses a newline. `javascript:`, `data:` and `vbscript:` links are drawn as text.
+
+**Images are taken out of the line.** React Native cannot put a view inside a `Text`, so `renderRich`
+(`client/markdown.tsx`) draws a block's text and then its images as one `ImageGallery`: one image at the
+column's width (at most 360 points tall in the chat), two or more as wrapping tiles. A table cell's tiles are
+smaller. Alt text is the caption and the accessibility label, except Paseo's own `Image`.
+
+**Local images come from the daemon, never from a path the app opens.** `mission-control.files.image` resolves
+the source exactly as `files.find` does (`resolveLocalFile`): a relative path is the home's; an absolute one,
+or a `file:` URL, must sit under the home or a root from `projects.list()`, lexically and again after
+`realpath` against that root's real path, so neither `..` nor a symlink leaves it. Then the bytes must be a
+PNG, JPEG, GIF or WebP by their header (`server/image-header.ts`, which also gives the size), at most
+`MAX_IMAGE_BYTES` (8 MB), and travel base64 in the answer. Anything else is a refusal with a reason, drawn as a
+placeholder. There is no downscaling: Node has no image decoder and the client may not bundle one, so the
+cost is held down instead by fetching an image only when it scrolls within 800 px of view (`whenNearView`,
+`IntersectionObserver` on the web, at once on native), two reads at a time across the plugin, and five minutes
+in the query cache. An `https://` or `data:image` source is loaded by the app itself. A worker on another host
+names files on that machine, which this daemon cannot read, so its transcript draws local images as a
+placeholder saying so.
+
+**A registered project at a broad root widens the reach.** The rule is "any registered project's root",
+so a project registered at the user's home folder makes every image under it readable by the chat.
+
+**Paseo's own agent view needs nothing from here.** It already renders Markdown images itself, local files
+included: the shots in Mission Control's own timeline drew there at 320 points tall, loaded as `blob:` URLs
+through the daemon's file reads. A timeline transformer could replace `assistant_message` items, but only
+with plugin items drawn by the plugin's renderer, which would swap Paseo's working Markdown for this one
+everywhere, so none is registered.
 
 `AGENTS.md` opens with a note that the plugin rewrites it on every start, pointing at
 `prompts/user.md` for anything that should last. The open folder, the open file and its unsaved text

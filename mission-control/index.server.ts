@@ -14,7 +14,8 @@ import {
 } from "./server/crew";
 import { registerCrewSeen } from "./server/crew-seen";
 import { type CrewLocations, ReportCache, loadFleet, namedCrew, readAgentTools, resolveCoordinator } from "./server/fleet";
-import { findFiles, listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
+import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
+import { findLinkedFiles, readLocalImage, revealLocalFile } from "./server/local-files";
 import { CHARTER_FILE, NEW_CHARTER_FILE, acknowledgeCharter, writeNewCharter } from "./server/charter-file";
 import { isHomeReady, prepareHome, readBacklog, removeSuggestion } from "./server/home";
 import { writeBoardOrder } from "./server/board-order";
@@ -67,7 +68,7 @@ import {
   toggleWatch,
   writeConfig,
 } from "./shared/fleet";
-import { findHomeFiles, listHomeFiles, readHomeFile, writeHomeFile } from "./shared/files";
+import { findHomeFiles, listHomeFiles, readHomeFile, readImage, revealFile, writeHomeFile } from "./shared/files";
 import { startWatches } from "./server/watch-service";
 import { displaySettings } from "./shared/settings";
 
@@ -165,7 +166,22 @@ export default function contribute(server: PluginServerContext) {
     return { home: root, ...(await listDirectory(root, path)) };
   });
   server.handle(readHomeFile, async ({ path }) => readTextFile(await home(), path));
-  server.handle(findHomeFiles, async ({ paths }) => ({ files: await findFiles(await home(), paths) }));
+  // The project roots a reply's links and images may reach besides the home; see server/local-files.ts.
+  // A listing that fails leaves the home alone reachable rather than failing the chat.
+  async function projectRoots(paseo: PaseoApi): Promise<string[]> {
+    try {
+      return (await paseo.projects.list()).projects.map((project) => project.projectRootPath);
+    } catch (caught) {
+      console.warn("[mission-control] projects could not be listed for file links:", caught);
+      return [];
+    }
+  }
+  server.handle(findHomeFiles, async ({ paths }, { paseo }) => findLinkedFiles(await home(), await projectRoots(paseo), paths));
+  server.handle(readImage, async ({ src }, { paseo }) => readLocalImage(await home(), await projectRoots(paseo), src));
+  server.handle(revealFile, async ({ path }, { paseo }) => {
+    await revealLocalFile(await home(), await projectRoots(paseo), path);
+    return {};
+  });
   server.handle(writeHomeFile, async (input) => {
     const written = await writeTextFile(await home(), input);
     // The charter's source, saved in the panel, reaches AGENTS.md at once rather than at the next reload.
