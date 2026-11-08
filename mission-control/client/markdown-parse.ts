@@ -4,6 +4,8 @@
  * exactly the text the renderer draws inline — never a fenced code block.
  */
 
+import { RUN_COMMAND_MAX } from "../shared/fleet";
+
 export type Block =
   | { kind: "heading"; level: number; text: string }
   | { kind: "paragraph"; text: string }
@@ -19,7 +21,13 @@ export type Block =
    * line of its own: a button that opens Debrief on the work. `ref` is a task id, an agent id or a
    * workspace id; none means the worker whose transcript it is in.
    */
-  | { kind: "debrief"; ref: string | null; view: DebriefEmbedView; path: string | null };
+  | { kind: "debrief"; ref: string | null; view: DebriefEmbedView; path: string | null }
+  /**
+   * `[[run: <project> :: <command>]]` or `[[run: <command>]]` on a line of its own, never in a quote or
+   * under a list item: a shell command the user can run with one click. `project` is a Paseo project's
+   * name; null means Mission Control's home.
+   */
+  | { kind: "run"; project: string | null; command: string };
 
 export type DebriefEmbedView = "diff" | "story" | "plans";
 
@@ -59,6 +67,23 @@ export function parseDebriefEmbed(argument: string): { ref: string | null; view:
   return { ref, view, path: rest === "" ? null : rest };
 }
 
+/** A run embed: the whole line, unindented past three spaces; the last `]]` on it closes the embed. */
+const RUN_EMBED = /^ {0,3}\[\[\s*run\s*:(.*)\]\]\s*$/i;
+/** `<project> :: `, a name without colons, before the first `::` with space on both sides. */
+const RUN_PROJECT = /^\s*([^:`]{0,128}?)\s+::\s+/;
+
+/**
+ * A run embed's project and command, or null when there is no command. A command that itself holds
+ * ` :: ` names a project before it, or an empty one for the home: `[[run: :: a :: b]]`.
+ */
+export function parseRunEmbed(argument: string): { project: string | null; command: string } | null {
+  const named = RUN_PROJECT.exec(` ${argument}`);
+  const project = named === null ? null : (named[1] ?? "").trim();
+  const command = (named === null ? argument : ` ${argument}`.slice(named[0].length)).trim();
+  if (command === "" || command.length > RUN_COMMAND_MAX) return null;
+  return { project: project === "" ? null : project, command };
+}
+
 export interface ListItem {
   marker: string;
   depth: number;
@@ -90,10 +115,11 @@ function listItemOf(line: string): ListItem | null {
 
 /** Line by line: a fence runs to the next fence, a blank line ends whatever else is open. */
 export function parseMarkdown(source: string): Block[] {
-  return parseBlocks(source.replace(/\r\n?/g, "\n").split("\n"));
+  return parseBlocks(source.replace(/\r\n?/g, "\n").split("\n"), false);
 }
 
-function parseBlocks(lines: string[]): Block[] {
+/** In a quote a run embed stays text: a quote repeats someone else's words, and nobody else's command gets a button. */
+function parseBlocks(lines: string[], quoted: boolean): Block[] {
   const blocks: Block[] = [];
   let paragraph: string[] = [];
   let list: ListItem[] = [];
@@ -102,7 +128,7 @@ function parseBlocks(lines: string[]): Block[] {
   function flush(): void {
     if (paragraph.length > 0) blocks.push({ kind: "paragraph", text: paragraph.join("\n") });
     if (list.length > 0) blocks.push({ kind: "list", items: list });
-    if (quote.length > 0) blocks.push({ kind: "quote", blocks: parseBlocks(quote) });
+    if (quote.length > 0) blocks.push({ kind: "quote", blocks: parseBlocks(quote, true) });
     paragraph = [];
     list = [];
     quote = [];
@@ -140,6 +166,14 @@ function parseBlocks(lines: string[]): Block[] {
     if (debriefParts !== null) {
       flush();
       blocks.push({ kind: "debrief", ...debriefParts });
+      continue;
+    }
+    // Indented under an open list, the line belongs to the item above it.
+    const run = quoted || (list.length > 0 && /^\s/.test(line)) ? null : RUN_EMBED.exec(line);
+    const runParts = run === null ? null : parseRunEmbed(run[1] ?? "");
+    if (runParts !== null) {
+      flush();
+      blocks.push({ kind: "run", ...runParts });
       continue;
     }
     const heading = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);

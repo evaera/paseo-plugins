@@ -56,6 +56,7 @@ import { LaunchPanel } from "./launch";
 import { useCoordinatorSender } from "./coordinator-send";
 import type { CoordinatorAsk } from "./card-answer";
 import { ResizeHandle, clampShare } from "./resize-handle";
+import { RunOpenContext } from "./run-embed";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 import { FONT_SIZE } from "./type-scale";
 
@@ -664,25 +665,29 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     debrief: navigation === undefined ? null : openDebrief,
     canDebrief: (serverId) => serverId === null || debriefOpener(serverId) !== null,
   };
+  // A run embed's terminal lives in this host's workspace for the project, so no serverId.
+  const openRunTerminal = navigation === undefined ? null : (workspaceId: string) => navigation.openWorkspace({ workspaceId });
   // The board's tasks reach the chat too, for the cards Mission Control embeds in its replies.
   const chat = (
     <BoardTasksContext.Provider value={boardTasks}>
-      <CoordinatorChat
-        key={coordinator.id}
-        coordinator={coordinator}
-        theme={theme}
-        compact={compact}
-        onChanged={refresh}
-        onOpenFile={openFile}
-        suggestions={data.suggestions}
-        onPickSuggestion={(prompt) => tellCoordinator(prompt)}
-        onRemoveSuggestion={dismissSuggestion}
-        visible={compact ? shownTab === "chat" : !values.chatCollapsed}
-        seenSeq={values.chatSeen[coordinator.id] ?? null}
-        // Only Mission Control on board: a released one's entry would never be read again.
-        onSeen={(seq) => save({ chatSeen: { [coordinator.id]: seq } })}
-        renderCard={renderEmbeddedCard}
-      />
+      <RunOpenContext.Provider value={openRunTerminal}>
+        <CoordinatorChat
+          key={coordinator.id}
+          coordinator={coordinator}
+          theme={theme}
+          compact={compact}
+          onChanged={refresh}
+          onOpenFile={openFile}
+          suggestions={data.suggestions}
+          onPickSuggestion={(prompt) => tellCoordinator(prompt)}
+          onRemoveSuggestion={dismissSuggestion}
+          visible={compact ? shownTab === "chat" : !values.chatCollapsed}
+          seenSeq={values.chatSeen[coordinator.id] ?? null}
+          // Only Mission Control on board: a released one's entry would never be read again.
+          onSeen={(seq) => save({ chatSeen: { [coordinator.id]: seq } })}
+          renderCard={renderEmbeddedCard}
+        />
+      </RunOpenContext.Provider>
     </BoardTasksContext.Provider>
   );
   const opened = watching === null ? null : findOpened(data.cards, watching);

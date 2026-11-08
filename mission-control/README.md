@@ -74,6 +74,12 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
   until Mission Control is between turns. On a restart its records carry over, the old conversation stays in
   Paseo's history, and workers already running keep going — the new Mission Control checks on them
   regularly, since Paseo tells only the agent that started a worker when it finishes.
+- **Commands to try something** — when Mission Control can hand you a one-click way in (play a scene,
+  start the app), its reply shows the command in a code block with a run button. Each press runs it once
+  in a new Paseo terminal, in the project's folder or Mission Control's home; the pill shows it running,
+  then its exit code and last lines, with **Open terminal** and **Stop**. The terminal stays open after
+  the command ends, so its output is still there. Only Mission Control's own replies get the button,
+  never text it quotes. The command runs in your shell on macOS and Linux, and in PowerShell on Windows.
 - **Questions it asks you** — which option, whether to go ahead, a plan to approve — appear in the
   chat as a form you answer there, the same as in Mission Control's own tab.
 - **`/mc <message>`** in any composer sends the message to Mission Control, from wherever you are.

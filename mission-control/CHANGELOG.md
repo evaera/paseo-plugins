@@ -4,6 +4,17 @@ Notable changes to `mission-control`. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version numbers follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Run buttons in Mission Control's replies.** `[[run: <project> :: <command>]]`, or `[[run: <command>]]`
+  for Mission Control's home, on a line of its own is drawn as the command in a code block with a run
+  button. Each press runs it once in a new Paseo terminal in that project's folder, and the pill shows
+  it running, then its exit code and last lines, with Open terminal, Stop and a copy button. A project
+  Paseo does not have is refused by name. The charter tells Mission Control to offer one for trying
+  something out, beside the same command in plain text.
+
 ## [1.0.0] - 2026-11-06
 
 The first version.

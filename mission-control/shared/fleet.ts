@@ -563,3 +563,48 @@ export const relaunchCrew = defineRpc({
   input: crewInput.extend({ note: z.string().min(1) }),
   output: z.object({ agentId: z.string() }),
 });
+
+/** The longest command a `[[run: …]]` embed carries, the same cap the chat's parser holds it to. */
+export const RUN_COMMAND_MAX = 2000;
+
+const runCommand = z.string().trim().min(1).max(RUN_COMMAND_MAX).regex(/^[^\r\n]*$/, "A command is one line.");
+
+/**
+ * Runs one `[[run: …]]` embed's command, exactly as shown, in a new Paseo terminal: in the named Paseo
+ * project's root, or Mission Control's home when there is none. Refused for a name Paseo has no project by.
+ * Answers once the terminal has the command; the command itself is not waited for.
+ */
+export const startRun = defineRpc({
+  name: "mission-control.run.start",
+  input: z.object({ project: z.string().trim().min(1).max(128).nullable(), command: runCommand }),
+  output: z.object({
+    runId: z.string(),
+    workspaceId: z.string(),
+    terminalId: z.string(),
+    cwd: z.string(),
+    /** The project as Paseo names it, or null for the home. */
+    projectName: z.string().nullable(),
+  }),
+});
+
+/**
+ * Where a run stands. `running` until the command exits; `finished` with its exit code; `closed` when its
+ * terminal went away first; `unknown` for a run this plugin process did not start, as after a reload.
+ * `tail` is the terminal's last non-blank lines, ANSI stripped.
+ */
+export const runStatus = defineRpc({
+  name: "mission-control.run.status",
+  input: z.object({ runId: z.string().min(1).max(64) }),
+  output: z.object({
+    state: z.enum(["running", "finished", "closed", "unknown"]),
+    exitCode: z.number().nullable(),
+    tail: z.array(z.string()),
+  }),
+});
+
+/** Stops a run by closing its terminal, which ends the command with it. */
+export const stopRun = defineRpc({
+  name: "mission-control.run.stop",
+  input: z.object({ runId: z.string().min(1).max(64) }),
+  output: z.object({}),
+});

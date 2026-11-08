@@ -21,6 +21,7 @@ import { writeBoardOrder } from "./server/board-order";
 import { readNotes, writeNotes } from "./server/notes";
 import { renameTask } from "./server/rename";
 import { requestDebriefOpen } from "./server/debrief";
+import { Runs } from "./server/runs";
 import { HostClients } from "./server/hosts";
 import { sendWithoutInterrupting } from "./server/send";
 import type { PaseoApi } from "./server/host-types";
@@ -60,6 +61,9 @@ import {
   openInDebrief,
   restartCoordinator as restartCoordinatorRpc,
   steerCrew as steerCrewRpc,
+  runStatus,
+  startRun,
+  stopRun,
   toggleWatch,
   writeConfig,
 } from "./shared/fleet";
@@ -167,6 +171,15 @@ export default function contribute(server: PluginServerContext) {
     // The charter's source, saved in the panel, reaches AGENTS.md at once rather than at the next reload.
     if (written.path === CHARTER_FILE) await refreshCharter();
     return written;
+  });
+
+  // The chat's [[run: …]] embeds; see server/runs.ts.
+  const runs = new Runs(home);
+  server.handle(startRun, ({ project, command }, { paseo }) => runs.start(paseo, project, command));
+  server.handle(runStatus, ({ runId }, { paseo }) => runs.status(paseo, runId));
+  server.handle(stopRun, async ({ runId }, { paseo }) => {
+    await runs.stop(paseo, runId);
+    return {};
   });
 
   server.handle(openInDebrief, async (input) => {

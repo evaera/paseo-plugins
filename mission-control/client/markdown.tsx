@@ -21,6 +21,7 @@ import { Text, View } from "react-native";
 import { DebriefEmbed } from "./debrief-embed";
 import { inlineTokens, type FileLookup } from "./file-links";
 import { parseMarkdown, type Block } from "./markdown-parse";
+import { RunEmbed } from "./run-embed";
 import { MONOSPACE } from "./ui";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
@@ -93,6 +94,8 @@ interface InlineContext {
   renderCard: ((ref: string) => ReactNode) | null;
   /** The theme for a Debrief embed's button; null where a button has no board to act on. */
   theme: PluginTheme | null;
+  /** Draws `[[run: …]]` embeds as run buttons, with this theme; null draws them as code. */
+  runTheme: PluginTheme | null;
 }
 
 function renderInline(text: string, styles: MarkdownStyles, context: InlineContext): ReactNode[] {
@@ -201,6 +204,17 @@ function renderBlocks(blocks: Block[], styles: MarkdownStyles, context: InlineCo
         ) : (
           <DebriefEmbed key={index} refName={block.ref} view={block.view} path={block.path} theme={context.theme} />
         );
+      case "run":
+        // A button only in Mission Control's own words; anywhere else, the command as code, never runnable.
+        return context.runTheme === null ? (
+          <View key={index} style={styles.codeBlock}>
+            <Text selectable style={styles.codeText}>
+              {block.project === null ? block.command : `${block.project} :: ${block.command}`}
+            </Text>
+          </View>
+        ) : (
+          <RunEmbed key={index} project={block.project} command={block.command} theme={context.runTheme} />
+        );
       case "table":
         return (
           <View key={index} style={styles.table}>
@@ -237,6 +251,7 @@ export function Markdown({
   relaxed = false,
   renderCard = null,
   debriefButtons = false,
+  runButtons = false,
 }: {
   source: string;
   theme: PluginTheme;
@@ -251,12 +266,21 @@ export function Markdown({
   renderCard?: ((ref: string) => ReactNode) | null;
   /** Draws `[[debrief]]` embeds as buttons; on wherever `renderCard` is given, and in a worker's transcript. */
   debriefButtons?: boolean;
+  /** Draws `[[run: …]]` embeds as buttons that run their command. Only for Mission Control's own replies in the chat. */
+  runButtons?: boolean;
 }) {
   const styles = useMarkdownStyles(theme, fontSize, relaxed);
   const blocks = useMemo(() => parseMarkdown(source), [source]);
   return (
     <View style={{ gap: relaxed ? 12 : 6 }}>
-      {renderBlocks(blocks, styles, { lookup: files, onOpenLink, onOpenFile, renderCard, theme: renderCard === null && !debriefButtons ? null : theme })}
+      {renderBlocks(blocks, styles, {
+        lookup: files,
+        onOpenLink,
+        onOpenFile,
+        renderCard,
+        theme: renderCard === null && !debriefButtons ? null : theme,
+        runTheme: runButtons ? theme : null,
+      })}
     </View>
   );
 }

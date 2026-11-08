@@ -8,7 +8,7 @@
  * The exports are the pointer tracking behind the chat pane's resize drag —
  * copied from `github-board/client/web.ts`, there is no workspace root to share
  * it from — and a card's drag within its column, the chat's file picker,
- * paste and drop, and whether the window has the focus.
+ * paste and drop, whether the window has the focus, and copying a run embed's command.
  */
 import { Platform } from "react-native";
 
@@ -352,4 +352,20 @@ export function disableScrollAnchoring(node: unknown): void {
   if (Platform.OS !== "web" || typeof node !== "object" || node === null) return;
   const style = Reflect.get(node, "style");
   if (typeof style === "object" && style !== null) Reflect.set(style, "overflowAnchor", "none");
+}
+
+/** Whether `copyText` can reach a clipboard: the web renderer's, desktop and browsers. No host module offers one on native. */
+export const canCopyText = Platform.OS === "web";
+
+/** Puts `text` on the clipboard; false where there is none to reach or the browser refused. */
+export async function copyText(text: string): Promise<boolean> {
+  if (!canCopyText) return false;
+  const clipboard = (globalThis as { navigator?: { clipboard?: { writeText?: (text: string) => Promise<void> } } }).navigator?.clipboard;
+  if (typeof clipboard?.writeText !== "function") return false;
+  try {
+    await clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }

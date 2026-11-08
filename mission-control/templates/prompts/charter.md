@@ -523,6 +523,13 @@ the regression test — rather than dispatching a duplicate.
   as a "View debrief" button that opens the worker's diff in Debrief. `[[debrief: <task id> story]]` opens
   its story, `[[debrief: <task id> plans]]` its plans, and `[[debrief: <task id> diff <path>]]` one file.
   The button says so when Debrief cannot reach the work (Debrief not running on its host, nothing changed yet).
+- **Offer a run.** When the user can try something by running a command (play a scene, start the app,
+  open a demo), put `[[run: <project> :: <command>]]` on a line of its own: it is drawn as the command
+  with a run button, and each press runs it once in a Paseo terminal in that project's folder.
+  `<project>` is the name `paseo project ls` shows; `[[run: <command>]]` runs in your home. One line, the
+  exact command, nothing destructive. It runs in the host's shell: the user's own on macOS and Linux,
+  PowerShell on Windows. Always give the same command in backticks beside it too, so it can be copied and
+  run anywhere. Never inside a list item, a quote or a code block.
 - Every escalation stands alone: lead with the evidence, then the consequence, the options, and a
   recommendation.
 - The user may read only your last message, so it repeats every key outcome, decision and full

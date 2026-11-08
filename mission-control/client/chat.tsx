@@ -497,6 +497,7 @@ export function CoordinatorChat({
               files={files}
               onOpenFile={onOpenFile}
               renderCard={renderCard}
+              runButtons
             />
           </View>
         );

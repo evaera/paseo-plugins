@@ -90,6 +90,8 @@ compile time. This file covers only what is specific to `mission-control`.
 | `client/settings-screen.tsx`  | Settings › Plugins › Mission Control.                                                            |
 | `client/markdown.tsx`         | A trimmed copy of `github-board`'s renderer, for Mission Control's replies.                 |
 | `client/markdown-parse.ts`    | The renderer's blocks, and the inline text in them — what `file-links.ts` walks. Pure.     |
+| `client/run-embed.tsx`, `run-tint.ts` | A `[[run: …]]` embed's pill: the command tinted in a code block, the run button, the run's state. |
+| `server/runs.ts`, `run-launch.ts` | A run embed's command in a Paseo terminal: the project it names, the wrapper that records its exit code, its status. |
 | `client/file-links.ts`        | A reply's inline tokens, and the home files it names that the daemon (`mission-control.files.find`) says exist. Pure. |
 | `client/type-scale.ts`        | Every font size, by role, at Paseo's default sizes; the one file to change when the theme carries Paseo's font setting. |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
@@ -721,6 +723,35 @@ registered, the fallback is the older mailbox: `mission-control.debrief.open` wr
 `plugin-data/debrief/open-requests/<nonce>.json` (`{ workspaceId, agentId?, view, path?, createdAt }`,
 Debrief's `OpenRequestSchema`), staged under a dot-name and renamed so Debrief, which claims only `*.json`,
 never reads half of one, and Debrief's panel claims it on its poll.
+
+## Mission Control can offer a command to run
+
+A line of its own reading `[[run: <project> :: <command>]]`, or `[[run: <command>]]` for the home, is a run
+embed (`parseRunEmbed`). The project is everything before the first `::` with a space on both sides, no
+colons in it; a command that itself holds ` :: ` takes an explicit project or an empty one, `[[run: :: …]]`.
+Like a card it is text in a paragraph, a list item or a code block, and **inside a quote it is never a run
+embed** (`parseBlocks`'s `quoted`): a quote repeats someone else's words. Only the chat's Mission Control
+rows draw the button (`Markdown`'s `runButtons`); the Files preview, a worker's transcript and a
+permission summary draw the command as code. The user's own messages are plain text, so a pasted embed or a
+watch message never gets one.
+
+**It runs in a Paseo terminal, through a wrapper.** `mission-control.run.start` resolves the project through
+`projects.list()` (custom name, display name or folder, exact then ignoring case; none or two is a refusal
+that names Paseo's projects), opens that root's workspace and creates a terminal in it. A Paseo terminal is
+removed the moment its process exits, output and all, and nothing in the SDK reports an exit code (Paseo's
+own command-finished events come from zsh shell integration and stay inside the daemon). So the terminal's
+process is a wrapper (`server/run-launch.ts`) that runs the command, writes its exit code to
+`plugin-data/mission-control/runs/<run id>.code`, prints `[mission-control] exited with code N`, and then
+becomes an interactive shell, so the output stays and the terminal stays usable. On macOS and Linux it is
+`$SHELL` (or `/bin/sh` for a non-POSIX one) with the command as `$1`, `eval`ed in a subshell under
+`trap : INT`; on Windows it is PowerShell with the script as `-EncodedCommand` and the command a
+single-quoted literal for `Invoke-Expression`, the code written in a `finally`. Paseo's own default shell on
+Windows is cmd.exe, which has no way to take a whole command as one argument safely.
+
+The pill polls `mission-control.run.status` every 1.5 s while running: the code file, whether the terminal
+is still listed, and its last lines (`capture` from the end, cut at the closing line). Runs live in the
+plugin process's memory, so after a reload a pill hears `unknown` and says the terminal is still in Paseo.
+The pill's state is module scope by project and command, like the chat's other remount-proof state.
 
 ## The home's files, in the panel
 
