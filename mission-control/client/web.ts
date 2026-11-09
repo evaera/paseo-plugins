@@ -8,7 +8,7 @@
  * The exports are the pointer tracking behind the chat pane's resize drag —
  * copied from `github-board/client/web.ts`, there is no workspace root to share
  * it from — and a card's drag within its column, the chat's file picker,
- * paste and drop, whether the window has the focus, copying a run embed's command, and holding an
+ * paste and drop, whether the window has the focus, whether the primary pointer is a finger, copying a run embed's command, and holding an
  * image back until it scrolls near the view.
  */
 import { Platform } from "react-native";
@@ -307,6 +307,36 @@ export function windowHasFocus(): boolean {
   if (Platform.OS !== "web") return true;
   const hasFocus = (globalThis as WebGlobals).document?.hasFocus;
   return typeof hasFocus === "function" ? hasFocus.call((globalThis as WebGlobals).document) : true;
+}
+
+interface PointerQuery {
+  matches: boolean;
+  addEventListener?: (type: string, listener: () => void) => void;
+  removeEventListener?: (type: string, listener: () => void) => void;
+}
+
+function coarsePointerQuery(): PointerQuery | null {
+  const matchMedia = Reflect.get(globalThis, "matchMedia") as ((query: string) => PointerQuery) | undefined;
+  return typeof matchMedia === "function" ? matchMedia.call(globalThis, "(pointer: coarse)") : null;
+}
+
+/**
+ * Whether the primary pointer is a finger, so buttons want touch-size targets. `pointer`, not
+ * `any-pointer`: a laptop with a touchscreen is still driven by its trackpad. Native is always a finger.
+ */
+export function primaryPointerCoarse(): boolean {
+  if (Platform.OS !== "web") return true;
+  return coarsePointerQuery()?.matches ?? false;
+}
+
+/** Every change to `primaryPointerCoarse`, as a tablet docks to a keyboard and trackpad or leaves one. */
+export function trackPrimaryPointer(onChange: (coarse: boolean) => void): () => void {
+  if (Platform.OS !== "web") return () => {};
+  const query = coarsePointerQuery();
+  if (query === null || typeof query.addEventListener !== "function") return () => {};
+  const change = () => onChange(query.matches);
+  query.addEventListener("change", change);
+  return () => query.removeEventListener?.("change", change);
 }
 
 export function trackWindowFocus(onChange: (focused: boolean) => void): () => void {

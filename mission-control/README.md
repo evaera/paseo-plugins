@@ -121,8 +121,8 @@ Each card is a worker, a backlog item, or both. Press one for its actions:
 - **Watch** — the worker's card beside everything it is doing, live, in place of the board: the brief
   it was given, its reasoning, each command and file it touched (press one for what it ran and what
   came back), its plan, and its replies. Anything it is waiting on — a question, a permission — is
-  answered there. The chat with Mission Control stays beside it; **Crew** takes you back to the board,
-  and **Open in Paseo** shows the worker's whole session.
+  answered there. The chat with Mission Control stays beside it; **Back** takes you back to the board,
+  and **Go to Chat** shows the worker's whole session in Paseo.
 - **Steer** — a word straight to the worker. It counts as coming from you, and Mission Control is told
   what you said and what the worker answered.
 - **Interrupt** — stops the worker's current turn.

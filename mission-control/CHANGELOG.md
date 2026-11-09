@@ -27,6 +27,10 @@ Notable changes to `mission-control`. The format follows
 
 ### Fixed
 
+- **Desktop-size buttons on a desktop at any width.** Touch-size (44 pt) buttons follow the input, not
+  the window: phones and coarse-pointer devices keep them, and a desktop window narrow enough for one pane
+  no longer gets them. A card's bar says **Back** and **Go to Chat** (it was *Crew* and an unlabelled
+  *Open in Paseo*), dropping to icons when the labels would squeeze the title, Go to Chat's first.
 - **Links in replies.** Windows paths (`C:\Users\…`), `file:///` URLs and `name.md:12` are linked; a link
   inside bold text works; a URL with parentheses keeps them; a link to a file in a registered Paseo
   project shows it in the file manager; and a link to a missing file reads as its text instead of

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   BESIDE_COLUMN_WIDTH,
+  CARD_TITLE_MIN_WIDTH,
   BESIDE_MIN_WIDTH,
   CHAT_MIN_WIDTH,
   FITTED_COLUMNS,
   besideBoardWidth,
+  cardBarLabels,
   columnOffsets,
   fittedColumnWidth,
   growingHeight,
@@ -14,6 +16,7 @@ import {
   nextOffset,
   overflowEdges,
   touchPadding,
+  touchTargets,
   twinText,
 } from "./layout-tier";
 
@@ -184,5 +187,50 @@ describe("a touch area around a small mark", () => {
   it("adds nothing to a mark already the target's size or bigger", () => {
     expect(touchPadding(44)).toBe(0);
     expect(touchPadding(60)).toBe(0);
+  });
+});
+
+describe("touch-size buttons", () => {
+  it("are drawn on a phone, whatever the pointer", () => {
+    expect(touchTargets("phone", false)).toBe(true);
+    expect(touchTargets("phone", true)).toBe(true);
+  });
+
+  it("are not drawn for a desktop pointer at any width, the medium single pane included", () => {
+    expect(touchTargets("medium", false)).toBe(false);
+    expect(touchTargets("wide", false)).toBe(false);
+  });
+
+  it("are drawn wherever the primary pointer is a finger, a tablet on the medium layout included", () => {
+    expect(touchTargets("medium", true)).toBe(true);
+    expect(touchTargets("wide", true)).toBe(true);
+  });
+});
+
+describe("the card bar's labels", () => {
+  const back = 42;
+  const open = 76;
+
+  it("shows both where the title keeps its minimum with both drawn", () => {
+    expect(cardBarLabels(CARD_TITLE_MIN_WIDTH + back + open, back, open)).toEqual({ back: true, open: true });
+    expect(cardBarLabels(600, back, open)).toEqual({ back: true, open: true });
+  });
+
+  it("drops Go to Chat's label before Back's", () => {
+    expect(cardBarLabels(CARD_TITLE_MIN_WIDTH + back + open - 1, back, open)).toEqual({ back: true, open: false });
+    expect(cardBarLabels(CARD_TITLE_MIN_WIDTH + back, back, open)).toEqual({ back: true, open: false });
+  });
+
+  it("drops both where even Back's would squeeze the title", () => {
+    expect(cardBarLabels(CARD_TITLE_MIN_WIDTH + back - 1, back, open)).toEqual({ back: false, open: false });
+    expect(cardBarLabels(180, back, open)).toEqual({ back: false, open: false });
+  });
+
+  it("draws icons until the bar has been measured", () => {
+    expect(cardBarLabels(0, back, open)).toEqual({ back: false, open: false });
+  });
+
+  it("gives a bar with no open button Back's label on Back's room alone", () => {
+    expect(cardBarLabels(CARD_TITLE_MIN_WIDTH + back, back, 0)).toEqual({ back: true, open: true });
   });
 });

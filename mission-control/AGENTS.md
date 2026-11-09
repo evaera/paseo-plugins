@@ -667,10 +667,11 @@ user to decide, Interrupt and Relaunch, End or Drop. Under it are the user's not
 (`client/task-notes.tsx`, `tasks/<id>/user-notes.md` through `mission-control.notes.read` and `.write`), saved as
 they type and read by Mission Control, never written by it (charter §2). With a worker, on the right, is its
 live transcript and a box at its foot that talks to it directly through `steerCrew`, so Mission Control
-hears about it as it would a steer. Pressing *Crew* again, or the view's back button, returns to the board.
+hears about it as it would a steer. Pressing *Crew* again, or the view's *Back* button, returns to the board.
 The open card is found again on each poll by its worker, or by its task when it has none (`openedRef`), and
-a worker on a connected host stays open through a poll that could not reach that host. *Open in Paseo* is
-in the view's bar. The workspace and agent panels draw the same `CardSheet`, without the view around it.
+a worker on a connected host stays open through a poll that could not reach that host. *Go to Chat* is
+in the view's bar; it and *Back* drop to their icons when their labels would squeeze the title under
+`CARD_TITLE_MIN_WIDTH`. The workspace and agent panels draw the same `CardSheet`, without the view around it.
 
 The transcript is `useAgentTimeline` on the crewmate, the tail of 200 projected entries, turned into
 rows by `activityRows`. Where the chat folds Mission Control's machinery away, this keeps it: reasoning,
@@ -948,7 +949,7 @@ open, and a desktop window dragged narrow is the same layout as either.
   to reach a foot. An unfolded foldable, a tablet, and a desktop window with Paseo's sidebar open are all
   here: a 1440 pt window with the sidebar open leaves a 1120 pt surface, where the split squeezed the board
   to one cut column. The chat is held to an 880 pt column, centred. A card opens in the Board tab's place,
-  full width, with the card beside its transcript and *Crew* to go back. While the board is out of sight
+  full width, with the card beside its transcript and *Back* to go back. While the board is out of sight
   its tab counts the cards in Needs you (warning) and the failed ones (danger), `boardAttention`; the
   Coordinator tab counts Mission Control's own pending questions while the chat is out of sight. Board
   columns are fitted to the surface so whole ones show (`fittedColumnWidth`), the row snaps to a column's
@@ -957,6 +958,12 @@ open, and a desktop window dragged narrow is the same layout as either.
 - **wide**: everything else, drawn exactly as before. 1400 is where the split's default 36% chat share
   still holds about 480 pt of chat and the rest three whole 280 pt board columns (see the comment on
   `SPLIT_MIN_WIDTH`), so a 1440 pt window with the sidebar closed stays split.
+
+**Button size follows the input, not the layout.** `touchTargets` (`useTouchTargets` in
+`client/touch-targets.ts`) draws buttons `TOUCH_TARGET` (44 pt) square on the phone layout and wherever
+the primary pointer is coarse (native, and `(pointer: coarse)` on web, a tablet's browser); a desktop
+window at any width, the medium layout included, keeps desktop-size buttons. Anything that sizes a
+button for a finger reads that, never `tier !== "wide"`.
 
 **A card's view with a worker has one bar, on every layout**: back, the face, the title over the state, the
 model and the context share, the Details toggle, diff and open. There is no header over the transcript. Where

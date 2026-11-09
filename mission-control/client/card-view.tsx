@@ -34,9 +34,10 @@ import { Markdown } from "./markdown";
 import { useFileLinks } from "./use-file-links";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { TaskNotes } from "./task-notes";
-import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
+import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText, iconButtonWidth, labelWidthEstimate } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
-import { useLayoutTier } from "./layout-tier";
+import { cardBarLabels, useLayoutTier } from "./layout-tier";
+import { useTouchTargets } from "./touch-targets";
 import { useKeyboardOverlap } from "./keyboard";
 import { EdgeFade } from "./edges";
 import { GrowingSlot, useGrowingHeight } from "./growing-input";
@@ -49,6 +50,9 @@ const SIDE_BY_SIDE_WIDTH = 680;
 const CARD_COLUMN_WIDTH = 320;
 /** Below this width the bar's Details toggle is its chevron alone. */
 const DETAILS_LABEL_MIN_WIDTH = 480;
+
+const BACK_LABEL = "Back";
+const OPEN_LABEL = "Go to Chat";
 /** The worker's box grows to this many lines, then scrolls. */
 const WORKER_INPUT_MAX_LINES = 6;
 /** A card with no worker has nothing beside it, so it is held to a readable width. */
@@ -113,7 +117,29 @@ export function CardView({
   const debriefTarget = card === null ? null : cardDebriefTarget(card);
   const sideBySide = !compact && width >= SIDE_BY_SIDE_WIDTH;
   const tier = useLayoutTier();
-  const touch = tier !== "wide";
+  const touch = useTouchTargets(tier);
+  /**
+   * The bar's labels. The title's measured width plus what each drawn label takes from it is the room
+   * the title has with neither label, which a label appearing or going does not change, so the choice
+   * holds still. A label's width is measured each time it is drawn and estimated until it first is.
+   */
+  const [titleWidth, setTitleWidth] = useState(0);
+  const [backDrawn, setBackDrawn] = useState(0);
+  const [openDrawn, setOpenDrawn] = useState(0);
+  const backLabelWidth = useRef(labelWidthEstimate(BACK_LABEL));
+  const openLabelWidth = useRef(labelWidthEstimate(OPEN_LABEL));
+  const titleRoom = titleWidth + backDrawn + (onOpen === null ? 0 : openDrawn);
+  const labels = cardBarLabels(titleRoom, backLabelWidth.current, onOpen === null ? 0 : openLabelWidth.current);
+  const measureLabel =
+    (shown: boolean, width: { current: number }, setDrawn: (drawn: number) => void) =>
+    (event: { nativeEvent: { layout: { width: number } } }) => {
+      const drawn = shown ? Math.max(0, event.nativeEvent.layout.width - iconButtonWidth(touch)) : 0;
+      if (shown) width.current = drawn;
+      setDrawn(drawn);
+    };
+  const onBackLayout = measureLabel(labels.back, backLabelWidth, setBackDrawn);
+  const onOpenLayout = measureLabel(labels.open, openLabelWidth, setOpenDrawn);
+  const onTitleLayout = (event: { nativeEvent: { layout: { width: number } } }) => setTitleWidth(event.nativeEvent.layout.width);
   /**
    * A card stacked over its worker's transcript folds away behind the bar's Details toggle, and unfolded
    * takes the transcript's place: neither is usable in half of a narrow pane. What the card asks the
@@ -141,6 +167,7 @@ export function CardView({
         paddingBottom: 8,
       },
       title: { flex: 1, color: colors.foreground, fontSize: FONT_SIZE.content, fontWeight: "600" as const },
+      barButton: { flexShrink: 0 },
       body: { flex: 1, minHeight: 0, paddingHorizontal: compact ? 10 : 12, paddingBottom: compact ? 10 : 12, gap: 10 },
       bodySide: { flexDirection: "row" as const },
       cardColumn: { width: CARD_COLUMN_WIDTH, flexGrow: 0, flexShrink: 0 },
@@ -205,14 +232,18 @@ export function CardView({
     <View ref={root} style={[styles.screen, keyboard > 0 ? { paddingBottom: keyboard } : null]}>
       {agent === null ? (
         <View style={styles.bar}>
-          <IconButton icon="ChevronLeft" label="Crew" showLabel theme={theme} onPress={onBack} touch={touch} />
-          <Text style={styles.title} numberOfLines={1}>
+          <View style={styles.barButton} onLayout={onBackLayout}>
+            <IconButton icon="ChevronLeft" label={BACK_LABEL} showLabel={labels.back} theme={theme} onPress={onBack} touch={touch} />
+          </View>
+          <Text style={styles.title} numberOfLines={1} onLayout={onTitleLayout}>
             {title}
           </Text>
         </View>
       ) : (
         <View style={styles.slimBar}>
-          <IconButton icon="ChevronLeft" label="Crew" theme={theme} onPress={onBack} touch={touch} flat />
+          <View style={styles.barButton} onLayout={onBackLayout}>
+            <IconButton icon="ChevronLeft" label={BACK_LABEL} showLabel={labels.back} theme={theme} onPress={onBack} touch={touch} flat />
+          </View>
           <Pressable
             disabled={!foldable}
             accessibilityRole={foldable ? "button" : undefined}
@@ -225,7 +256,7 @@ export function CardView({
             }}
           >
             <WorkerAvatar agent={agent} theme={theme} size={28} column={card?.column} ground={theme.colors.surface0} />
-            <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ flex: 1, minWidth: 0 }} onLayout={onTitleLayout}>
               <Text style={styles.slimTitle} numberOfLines={1}>
                 {title}
                 {subtitle === null ? null : <Text style={styles.slimSubtitle}>{`  ·  ${subtitle}`}</Text>}
@@ -246,7 +277,11 @@ export function CardView({
           {!canDebrief || debriefTarget === null ? null : (
             <IconButton icon="FileDiff" label="View diff" theme={theme} onPress={() => tasks.debrief?.(debriefTarget, "diff")} touch={touch} flat />
           )}
-          {onOpen === null ? null : <IconButton icon="ExternalLink" label="Open in Paseo" theme={theme} onPress={onOpen} touch={touch} flat />}
+          {onOpen === null ? null : (
+            <View style={styles.barButton} onLayout={onOpenLayout}>
+              <IconButton icon="ExternalLink" label={OPEN_LABEL} showLabel={labels.open} theme={theme} onPress={onOpen} touch={touch} flat />
+            </View>
+          )}
         </View>
       )}
       {/*

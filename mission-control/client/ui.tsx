@@ -15,6 +15,24 @@ export const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" })
 
 export type Tone = "default" | "accent" | "danger";
 
+const ICON_SIZE = 14;
+const ICON_PADDING = 7;
+const LABEL_PADDING = 10;
+const LABEL_GAP = 6;
+
+/** An unlabelled `IconButton`'s width: its icon, padding and 1-point border, or the touch target. */
+export function iconButtonWidth(touch: boolean): number {
+  return touch ? TOUCH_TARGET : ICON_SIZE + 2 * ICON_PADDING + 2;
+}
+
+/**
+ * What `label` adds to an `IconButton`'s width before it has been drawn once to measure: the labelled
+ * padding, the gap and about 7 points a character at `FONT_SIZE.small`.
+ */
+export function labelWidthEstimate(label: string): number {
+  return 2 * (LABEL_PADDING - ICON_PADDING) + LABEL_GAP + label.length * 7;
+}
+
 export function IconButton({
   icon,
   label,
@@ -47,8 +65,8 @@ export function IconButton({
       button: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
-        gap: 6,
-        paddingHorizontal: showLabel ? 10 : 7,
+        gap: LABEL_GAP,
+        paddingHorizontal: showLabel ? LABEL_PADDING : ICON_PADDING,
         paddingVertical: 6,
         borderRadius: 8,
         borderWidth: 1,
@@ -73,7 +91,7 @@ export function IconButton({
       onPress={onPress}
       style={styles.button}
     >
-      <Icon name={icon} size={14} color={color} />
+      <Icon name={icon} size={ICON_SIZE} color={color} />
       {showLabel ? <Text style={styles.label}>{label}</Text> : null}
     </Pressable>
   );

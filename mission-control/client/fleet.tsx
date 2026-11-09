@@ -60,6 +60,7 @@ import { RunOpenContext } from "./run-embed";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 import { FONT_SIZE } from "./type-scale";
 import { LayoutTierContext, TOUCH_TARGET, besideBoardWidth, layoutTier } from "./layout-tier";
+import { useTouchTargets } from "./touch-targets";
 import { boardAttention } from "./screen";
 import { SafeEdges } from "./edges";
 
@@ -169,12 +170,9 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
    */
   const [width, setWidth] = useState(0);
   const tier = layoutTier(compact, width);
-  /**
-   * Phone and medium: one pane at a time, behind tabs. Both may be driven by a finger (a tablet is
-   * medium), so both get touch-sized targets and the safe-area edges.
-   */
+  /** Phone and medium: one pane at a time, behind tabs, inside the safe-area edges. */
   const single = tier !== "wide";
-  const touch = single;
+  const touch = useTouchTargets(tier);
   const [tab, setTabState] = useState<Tab>(cachedTab);
   const [rightPane, setRightPaneState] = useState(cachedRightPane);
   const [watching, setWatchingState] = useState(cachedWatching);
@@ -290,15 +288,15 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       screen: { flex: 1, backgroundColor: colors.surface0 },
       header: {
         paddingHorizontal: compact ? 12 : 16,
-        paddingTop: compact ? 4 : touch ? 6 : 14,
-        paddingBottom: compact ? 4 : touch ? 6 : 8,
+        paddingTop: compact ? 4 : single ? 6 : 14,
+        paddingBottom: compact ? 4 : single ? 6 : 8,
         gap: 4,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
       },
       // The tabs' underline sits on the header's border, so the row loses its vertical padding.
       headerWithTabs: { paddingTop: 0, paddingBottom: 0 },
-      headerRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexWrap: touch ? ("nowrap" as const) : ("wrap" as const) },
+      headerRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexWrap: single ? ("nowrap" as const) : ("wrap" as const) },
       title: { color: colors.foreground, fontSize: compact ? FONT_SIZE.heading : FONT_SIZE.display, fontWeight: "600" as const },
       spacer: { flex: 1 },
       meta: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
@@ -354,7 +352,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       badgeText: { color: colors.accentForeground, fontSize: FONT_SIZE.caption, fontWeight: "700" as const },
       loading: { color: colors.foregroundMuted, fontSize: FONT_SIZE.body, padding: 20 },
     };
-  }, [theme, compact, touch]);
+  }, [theme, compact, single, touch]);
 
   const coordinator = data?.coordinator ?? null;
   /** The chat's own sender, so a suggestion goes out exactly as a typed message does. */
@@ -680,8 +678,8 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   const header = (
     <View style={[styles.header, topTabs === null ? null : styles.headerWithTabs]}>
       <View style={styles.headerRow}>
-        {touch ? null : <Icon name="SatelliteDish" size={compact ? 16 : 18} color={theme.colors.foreground} />}
-        {touch ? null : <Text style={styles.title}>Mission Control</Text>}
+        {single ? null : <Icon name="SatelliteDish" size={compact ? 16 : 18} color={theme.colors.foreground} />}
+        {single ? null : <Text style={styles.title}>Mission Control</Text>}
         {topTabs}
         {topTabs === null ? null : <View style={styles.spacer} />}
         {coordinator === null ? null : (
@@ -728,7 +726,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
    */
   const frame = (content: ReactNode) => (
     <LayoutTierContext.Provider value={tier}>
-      <SafeEdges edges={touch ? ["left", "right", "bottom"] : []} style={styles.screen}>
+      <SafeEdges edges={single ? ["left", "right", "bottom"] : []} style={styles.screen}>
         <View style={styles.screen} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
           {content}
         </View>

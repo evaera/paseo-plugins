@@ -43,6 +43,36 @@ export function useLayoutTier(): LayoutTier {
 /** The smallest a touch target may be, in points, on the layouts a finger drives. */
 export const TOUCH_TARGET = 44;
 
+/**
+ * Whether buttons are drawn `TOUCH_TARGET` square. That follows the input, not the width: the phone
+ * tier always, any other tier only where the primary pointer is coarse (a tablet, native). A desktop
+ * window dragged to any width keeps desktop-size buttons.
+ */
+export function touchTargets(tier: LayoutTier, coarsePointer: boolean): boolean {
+  return tier === "phone" || coarsePointer;
+}
+
+/**
+ * The narrowest a card bar's title may get before the bar's buttons give up their labels: about 40
+ * characters of the bar's title at body size.
+ */
+export const CARD_TITLE_MIN_WIDTH = 320;
+
+/**
+ * Which of a card bar's two labelled buttons, Back and Go to Chat, keep their labels. `titleRoom` is the
+ * title's width with neither label drawn; each `Extra` is what its label adds to its button. Back keeps
+ * its label first: Go to Chat's goes before it does. A bar not measured yet (`titleRoom` 0) draws icons.
+ */
+export function cardBarLabels(
+  titleRoom: number,
+  backExtra: number,
+  openExtra: number,
+  titleMin: number = CARD_TITLE_MIN_WIDTH,
+): { back: boolean; open: boolean } {
+  const back = titleRoom > 0 && titleRoom - backExtra >= titleMin;
+  return { back, open: back && titleRoom - backExtra - openExtra >= titleMin };
+}
+
 export interface ColumnFit {
   /** Padding at each end of the row of columns. */
   pad: number;
