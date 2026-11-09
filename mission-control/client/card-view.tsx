@@ -28,17 +28,15 @@ import type { DraftKind } from "./card-commands";
 import { useFollowEnd } from "./use-follow-end";
 import { WorkerAvatar, stateColor } from "./avatar-view";
 import { workerState } from "./worker-state";
-import { useWorkerBranch } from "./card-details";
-import { COLUMNS, agentStatusLabel, agentStatusTone, contextPercent, contextTone, modelName } from "./format";
-import { useLocalHost } from "./local-host";
+import { contextPercent, contextTone, modelName } from "./format";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
 import { useFileLinks } from "./use-file-links";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { TaskNotes } from "./task-notes";
-import { Chip, IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
+import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
-import { TOUCH_TARGET, useLayoutTier } from "./layout-tier";
+import { useLayoutTier } from "./layout-tier";
 import { useKeyboardOverlap } from "./keyboard";
 import { EdgeFade } from "./edges";
 import { GrowingSlot, useGrowingHeight } from "./growing-input";
@@ -49,17 +47,15 @@ const TIMELINE_LIMIT = 200;
 /** Below this width the card sits above the transcript instead of beside it. */
 const SIDE_BY_SIDE_WIDTH = 680;
 const CARD_COLUMN_WIDTH = 320;
-/** A phone's or a tablet's worker box grows to this many lines, then scrolls. */
+/** Below this width the bar's Details toggle is its chevron alone. */
+const DETAILS_LABEL_MIN_WIDTH = 480;
+/** The worker's box grows to this many lines, then scrolls. */
 const WORKER_INPUT_MAX_LINES = 6;
-/** A phone's Details line: drawn this tall, and padded above and below to a full touch target. */
-const SLIM_FOLD_HEIGHT = 32;
-const SLIM_FOLD_SLOP = (TOUCH_TARGET - SLIM_FOLD_HEIGHT) / 2;
 /** A card with no worker has nothing beside it, so it is held to a readable width. */
 const ALONE_MAX_WIDTH = 640;
 /**
- * Whether a phone's or a tablet's stacked card view shows the card or the transcript: one at a time,
- * the whole pane each, since neither is usable in half of a phone. The transcript by default; kept
- * across cards and remounts for the session, like the open tab.
+ * Whether a stacked card view shows the card or the transcript, one at a time. The transcript by
+ * default; kept across cards and remounts for the session, like the open tab.
  */
 let detailsOpen = false;
 
@@ -118,15 +114,14 @@ export function CardView({
   const sideBySide = !compact && width >= SIDE_BY_SIDE_WIDTH;
   const tier = useLayoutTier();
   const touch = tier !== "wide";
-  /** A phone's or a tablet's card stacked over a transcript folds to one line, and unfolded takes the transcript's place. */
-  const foldable = touch && !sideBySide && agent !== null;
+  /**
+   * A card stacked over its worker's transcript folds away behind the bar's Details toggle, and unfolded
+   * takes the transcript's place: neither is usable in half of a narrow pane. What the card asks the
+   * user stays over the transcript while it is folded, so a decision never needs Details opened.
+   */
+  const foldable = !sideBySide && agent !== null;
   const [unfolded, setUnfolded] = useState(detailsOpen);
   const folded = foldable && !unfolded;
-  /**
-   * A phone's stacked view: the bar and the worker's header are one row, Details a slim line under it, and
-   * what the card asks the user sits over the transcript, so the transcript starts as high as it can.
-   */
-  const slim = compact && foldable;
   /** The worker's context use, reported up by the transcript, which reads the timeline it comes from. */
   const [usage, setUsage] = useState<Usage>({ used: null, max: null });
   const root = useRef<View>(null);
@@ -149,31 +144,23 @@ export function CardView({
       body: { flex: 1, minHeight: 0, paddingHorizontal: compact ? 10 : 12, paddingBottom: compact ? 10 : 12, gap: 10 },
       bodySide: { flexDirection: "row" as const },
       cardColumn: { width: CARD_COLUMN_WIDTH, flexGrow: 0, flexShrink: 0 },
-      cardStacked: { flexGrow: 0, maxHeight: "45%" as const },
-      fold: {
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        gap: 8,
-        minHeight: 44,
-        paddingHorizontal: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 12,
-        backgroundColor: colors.surface1,
-      },
-      foldText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
-      slimBar: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingLeft: 2, paddingRight: 6, paddingVertical: 2 },
-      slimTitle: { color: colors.foreground, fontSize: FONT_SIZE.body, fontWeight: "600" as const },
-      slimState: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4 },
-      slimBody: { flex: 1, minHeight: 0, paddingHorizontal: 10, paddingBottom: 10, gap: 8 },
-      slimFold: {
+      slimBar: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
         gap: 6,
-        minHeight: SLIM_FOLD_HEIGHT,
-        paddingHorizontal: 4,
+        paddingLeft: compact ? 2 : 6,
+        paddingRight: compact ? 6 : 10,
+        paddingVertical: touch ? 2 : 6,
       },
+      slimHead: { flex: 1, minWidth: 0, flexDirection: "row" as const, alignItems: "center" as const, gap: 8, minHeight: 36 },
+      slimTitle: { color: colors.foreground, fontSize: FONT_SIZE.body, fontWeight: "600" as const },
+      slimSubtitle: { color: colors.foregroundMuted, fontWeight: "400" as const },
+      slimLine: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, minWidth: 0 },
+      slimState: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, flexShrink: 0 },
+      slimBody: { flex: 1, minHeight: 0, paddingHorizontal: compact ? 10 : 12, paddingBottom: compact ? 10 : 12, gap: 8 },
       slimFacts: { flexShrink: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
+      detailsToggle: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, flexShrink: 0 },
+      detailsText: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontWeight: "500" as const },
       cardContent: { gap: 10, paddingBottom: 4 },
       cardAlone: { flex: 1 },
       alone: { gap: 10, width: "100%" as const, maxWidth: ALONE_MAX_WIDTH, paddingBottom: 12 },
@@ -189,7 +176,7 @@ export function CardView({
         overflow: "hidden" as const,
       },
     };
-  }, [theme, compact]);
+  }, [theme, compact, touch]);
 
   const sheet =
     card === null ? (
@@ -208,96 +195,73 @@ export function CardView({
       </>
     );
 
-  const fold = slim ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ expanded: !folded }}
-      accessibilityLabel={folded ? "Show the card's details" : "Hide the card's details"}
-      style={styles.slimFold}
-      // Drawn slim; the touch area reaches the full target above and below it.
-      hitSlop={{ top: SLIM_FOLD_SLOP, bottom: SLIM_FOLD_SLOP }}
-      onPress={() => {
-        detailsOpen = folded;
-        setUnfolded(folded);
-      }}
-    >
-      <Icon name={folded ? "ChevronRight" : "ChevronDown"} size={14} color={theme.colors.foregroundMuted} />
-      <Text style={styles.foldText} numberOfLines={1}>
-        {folded ? (card === null ? "Details" : `Details · ${COLUMNS[card.column].title}`) : "Hide details"}
-      </Text>
-      {agent === null ? null : <WorkerFacts agent={agent} theme={theme} usage={usage} style={styles.slimFacts} />}
-    </Pressable>
-  ) : foldable ? (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ expanded: !folded }}
-      accessibilityLabel={folded ? "Show the card's details" : "Hide the card's details"}
-      style={styles.fold}
-      onPress={() => {
-        detailsOpen = folded;
-        setUnfolded(folded);
-      }}
-    >
-      <Icon name={folded ? "ChevronRight" : "ChevronDown"} size={16} color={theme.colors.foregroundMuted} />
-      <Text style={styles.foldText} numberOfLines={1}>
-        {folded ? (card === null ? "Details" : `Details · ${COLUMNS[card.column].title}`) : "Hide details, back to the worker"}
-      </Text>
-    </Pressable>
-  ) : null;
+  const canDebrief = debriefTarget !== null && tasks.debrief != null && tasks.canDebrief?.(debriefTarget.serverId) !== false;
+  const workerTitle = agent?.title ?? null;
+  const title = card?.title ?? workerTitle ?? "Card";
+  // The task's title leads; the worker's own follows only when it says something the task's does not.
+  const subtitle = workerTitle !== null && workerTitle.trim() !== "" && workerTitle !== title ? workerTitle : null;
 
   return (
     <View ref={root} style={[styles.screen, keyboard > 0 ? { paddingBottom: keyboard } : null]}>
-      {slim && agent !== null ? (
-        <View style={styles.slimBar}>
-          <IconButton icon="ChevronLeft" label="Crew" theme={theme} onPress={onBack} touch flat />
-          <WorkerAvatar agent={agent} theme={theme} size={28} column={card?.column} ground={theme.colors.surface0} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.slimTitle} numberOfLines={1}>
-              {card?.title ?? agent.title ?? "Card"}
-            </Text>
-            <SlimState agent={agent} report={card?.report ?? null} theme={theme} style={styles.slimState} />
-          </View>
-          {debriefTarget === null || tasks.debrief == null || tasks.canDebrief?.(debriefTarget.serverId) === false ? null : (
-            <IconButton icon="FileDiff" label="View diff" theme={theme} onPress={() => tasks.debrief?.(debriefTarget, "diff")} touch flat />
-          )}
-          {onOpen === null ? null : <IconButton icon="ExternalLink" label="Open in Paseo" theme={theme} onPress={onOpen} touch flat />}
+      {agent === null ? (
+        <View style={styles.bar}>
+          <IconButton icon="ChevronLeft" label="Crew" showLabel theme={theme} onPress={onBack} touch={touch} />
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
         </View>
       ) : (
-      <View style={styles.bar}>
-        <IconButton icon="ChevronLeft" label="Crew" showLabel theme={theme} onPress={onBack} touch={touch} />
-        <Text style={styles.title} numberOfLines={1}>
-          {card?.title ?? "Card"}
-        </Text>
-        {agent === null ? null : <Chip theme={theme} text={agentStatusLabel(agent)} color={agentStatusTone(theme, agent)} />}
-        {debriefTarget === null || tasks.debrief == null || tasks.canDebrief?.(debriefTarget.serverId) === false ? null : (
-          <IconButton
-            icon="FileDiff"
-            label="View diff"
-            showLabel={!touch && !compact}
-            theme={theme}
-            onPress={() => tasks.debrief?.(debriefTarget, "diff")}
-            touch={touch}
-          />
-        )}
-        {onOpen === null ? null : (
-          <IconButton icon="ExternalLink" label="Open in Paseo" showLabel={!touch && !compact} theme={theme} onPress={onOpen} touch={touch} />
-        )}
-      </View>
+        <View style={styles.slimBar}>
+          <IconButton icon="ChevronLeft" label="Crew" theme={theme} onPress={onBack} touch={touch} flat />
+          <Pressable
+            disabled={!foldable}
+            accessibilityRole={foldable ? "button" : undefined}
+            accessibilityState={foldable ? { expanded: !folded } : undefined}
+            accessibilityLabel={foldable ? (folded ? "Show the card's details" : "Hide the card's details") : undefined}
+            style={styles.slimHead}
+            onPress={() => {
+              detailsOpen = folded;
+              setUnfolded(folded);
+            }}
+          >
+            <WorkerAvatar agent={agent} theme={theme} size={28} column={card?.column} ground={theme.colors.surface0} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.slimTitle} numberOfLines={1}>
+                {title}
+                {subtitle === null ? null : <Text style={styles.slimSubtitle}>{`  ·  ${subtitle}`}</Text>}
+              </Text>
+              <View style={styles.slimLine}>
+                <SlimState agent={agent} report={card?.report ?? null} theme={theme} style={styles.slimState} />
+                <WorkerFacts agent={agent} theme={theme} usage={usage} style={styles.slimFacts} />
+              </View>
+            </View>
+            {foldable ? (
+              <View style={styles.detailsToggle}>
+                {/* A narrow pane keeps the width for the title; the chevron alone says the row opens. */}
+                {width < DETAILS_LABEL_MIN_WIDTH ? null : <Text style={styles.detailsText}>Details</Text>}
+                <Icon name={folded ? "ChevronDown" : "ChevronUp"} size={14} color={theme.colors.foregroundMuted} />
+              </View>
+            ) : null}
+          </Pressable>
+          {!canDebrief || debriefTarget === null ? null : (
+            <IconButton icon="FileDiff" label="View diff" theme={theme} onPress={() => tasks.debrief?.(debriefTarget, "diff")} touch={touch} flat />
+          )}
+          {onOpen === null ? null : <IconButton icon="ExternalLink" label="Open in Paseo" theme={theme} onPress={onOpen} touch={touch} flat />}
+        </View>
       )}
       {/*
         One tree whether or not the card has a worker, so a worker starting or ending under an open card
         never remounts the sheet: a half-typed note, Relaunch or Wait survives it, and so does the focus.
       */}
       <View
-        style={[slim ? styles.slimBody : styles.body, sideBySide || agent === null ? styles.bodySide : null]}
+        style={[agent === null ? styles.body : styles.slimBody, sideBySide || agent === null ? styles.bodySide : null]}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
       >
-        {fold}
-        {slim && folded && card !== null ? <CardDecisionStrip card={card} theme={theme} toCoordinator={toCoordinator} /> : null}
+        {folded && card !== null ? <CardDecisionStrip card={card} theme={theme} toCoordinator={toCoordinator} /> : null}
         {/* Hidden rather than unmounted, either side of the fold, so a half-typed note, answer or message survives it. */}
         <ScrollView
           style={[
-            agent === null ? styles.cardAlone : sideBySide ? styles.cardColumn : styles.cardStacked,
+            agent === null ? styles.cardAlone : sideBySide ? styles.cardColumn : null,
             foldable ? (folded ? { display: "none" as const } : { flex: 1, maxHeight: "100%" as const }) : null,
           ]}
           contentContainerStyle={agent === null ? styles.alone : styles.cardContent}
@@ -310,23 +274,19 @@ export function CardView({
           <View style={[styles.transcriptFrame, foldable && !folded ? { display: "none" as const } : null]}>
             {/* A bare `[[debrief]]` the worker writes means its own work. */}
             <DebriefSelfContext.Provider value={card}>
-            <ActivityTranscript
-              agent={agent}
-              report={card?.report ?? null}
-              column={card?.column}
-              agentId={agent.id}
-              serverId={agent.serverId}
-              revision={`${agent.updatedAt}:${agent.pendingPermissions}`}
-              theme={theme}
-              compact={compact}
-              onOpenFile={onOpenFile}
-              onOpen={onOpen}
-              fadeTop={touch}
-              header={!slim}
-              onUsage={slim ? setUsage : undefined}
-            />
+              <ActivityTranscript
+                agentId={agent.id}
+                serverId={agent.serverId}
+                revision={`${agent.updatedAt}:${agent.pendingPermissions}`}
+                theme={theme}
+                compact={compact}
+                onOpenFile={onOpenFile}
+                onOpen={onOpen}
+                fadeTop={touch}
+                onUsage={setUsage}
+              />
             </DebriefSelfContext.Provider>
-            <WorkerComposer agent={agent} theme={theme} compact={compact} onSent={onChanged} grow={touch} />
+            <WorkerComposer agent={agent} theme={theme} compact={compact} onSent={onChanged} />
           </View>
         )}
       </View>
@@ -339,7 +299,7 @@ interface Usage {
   max: number | null;
 }
 
-/** The worker's state as the phone's bar draws it under the title: an icon and a word, in that state's colour. */
+/** The worker's state as the card's bar draws it under the title: an icon and a word, in that state's colour. */
 function SlimState({
   agent,
   report,
@@ -363,13 +323,14 @@ function SlimState({
   );
 }
 
-/** The model and how full its context is, on the phone's Details line, where the worker's header had them. */
+/** The model and how full its context is, after the worker's state on the bar's second line. */
 function WorkerFacts({ agent, theme, usage, style }: { agent: AgentSummary; theme: PluginTheme; usage: Usage; style: object }) {
   const percent = contextPercent(usage.used, usage.max);
   const model = modelName(agent) || null;
   if (percent === null && model === null) return null;
   return (
     <Text style={style} numberOfLines={1}>
+      {"·  "}
       {model}
       {model === null || percent === null ? null : "  ·  "}
       {percent === null ? null : (
@@ -382,124 +343,22 @@ function WorkerFacts({ agent, theme, usage, style }: { agent: AgentSummary; them
 }
 
 /**
- * The worker over its own work, in the manner of Scape's session header: its
- * face, large; its name and branch; where it stands, with an icon in that
- * state's colour; and on the right how full its context is, with its host and
- * model under it.
- */
-function WorkerHeader({
-  agent,
-  column,
-  theme,
-  compact,
-  usedTokens,
-  maxTokens,
-  report,
-}: {
-  agent: AgentSummary;
-  column: FleetCard["column"] | undefined;
-  theme: PluginTheme;
-  compact: boolean;
-  /** The status line the worker last ended a turn on, which names its state once it has stopped. */
-  report: CrewReportSummary | null;
-  usedTokens: number | null | undefined;
-  maxTokens: number | null | undefined;
-}) {
-  const localHost = useLocalHost();
-  const branch = useWorkerBranch(agent).data ?? null;
-  const { colors } = theme;
-  const worked = workerState(agent, report);
-  const state = { icon: worked.icon, text: worked.label, color: stateColor(theme, worked.tone) };
-  const percent = contextPercent(usedTokens, maxTokens);
-  const facts = [agent.host ?? localHost, modelName(agent)].filter((fact): fact is string => fact !== null && fact !== "");
-  const small = { color: colors.foregroundMuted, fontSize: FONT_SIZE.small };
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: compact ? 10 : 14,
-        paddingHorizontal: compact ? 12 : 16,
-        paddingVertical: compact ? 10 : 12,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        backgroundColor: colors.surface0,
-      }}
-    >
-      <WorkerAvatar agent={agent} theme={theme} size={compact ? 40 : 48} column={column} ground={colors.surface0} />
-      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Text
-            style={{ flexShrink: 1, color: colors.foreground, fontSize: FONT_SIZE.content, fontWeight: "700" }}
-            numberOfLines={1}
-          >
-            {agent.title ?? "Worker"}
-          </Text>
-          {/* A phone has no room for it beside the title, where it shrank to a letter; the card's details carry it. */}
-          {branch === null || compact ? null : (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 2, minWidth: 0 }}>
-              <Icon name="GitBranch" size={12} color={colors.foregroundMuted} />
-              <Text style={small} numberOfLines={1}>
-                {branch}
-              </Text>
-            </View>
-          )}
-        </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <Icon name={state.icon} size={13} color={state.color} />
-          <Text style={{ color: state.color, fontSize: FONT_SIZE.small, fontWeight: "500" }}>{state.text}</Text>
-        </View>
-      </View>
-      {compact && percent === null && facts.length === 0 ? null : (
-        <View style={{ alignItems: "flex-end", gap: 6 }}>
-          {percent === null ? null : (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <View style={{ width: compact ? 48 : 72, height: 6, borderRadius: 3, backgroundColor: colors.surface2, overflow: "hidden" }}>
-                <View
-                  style={{
-                    width: `${Math.min(100, Math.max(2, percent))}%`,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: percent >= 70 ? contextTone(theme, percent) : colors.statusSuccess,
-                  }}
-                />
-              </View>
-              <Text style={[small, { fontVariant: ["tabular-nums"] }]}>{Math.round(percent)}%</Text>
-            </View>
-          )}
-          {facts.length === 0 ? null : (
-            <Text style={small} numberOfLines={1}>
-              {facts.join("  ·  ")}
-            </Text>
-          )}
-        </View>
-      )}
-    </View>
-  );
-}
-
-/**
  * The box at the transcript's foot: the user's words go straight to the
  * worker, joining its turn where the provider allows, and Mission Control hears
- * about it when that turn ends. Enter sends on the web's wide layout, as in
- * Mission Control's chat.
+ * about it when that turn ends. Enter sends on the web's wider layouts, as in
+ * Mission Control's chat. One line beside Send, growing with the words up to
+ * `WORKER_INPUT_MAX_LINES`, so an empty box leaves the transcript the room.
  */
 function WorkerComposer({
   agent,
   theme,
   compact,
   onSent,
-  grow = false,
 }: {
   agent: AgentSummary;
   theme: PluginTheme;
   compact: boolean;
   onSent: () => void;
-  /**
-   * A phone's or a tablet's box: one line beside Send, growing with the words up to
-   * `WORKER_INPUT_MAX_LINES`, so an empty box leaves the transcript the room.
-   */
-  grow?: boolean;
 }) {
   const steer = useRpc(steerCrew);
   const toast = useToast();
@@ -511,32 +370,12 @@ function WorkerComposer({
     fontSize: FONT_SIZE.content,
     lineHeight: lineHeightFor(FONT_SIZE.content),
     maxLines: WORKER_INPUT_MAX_LINES,
-    enabled: grow,
+    enabled: true,
   });
   const styles = useMemo(() => {
     const { colors } = theme;
     return {
-      frame: {
-        paddingHorizontal: compact ? 8 : 12,
-        paddingTop: 8,
-        paddingBottom: compact ? 8 : 12,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
-        backgroundColor: colors.surface0,
-      },
-      // One box, as Mission Control's composer is: the words, and Send at its foot.
-      box: {
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 12,
-        backgroundColor: colors.surface1,
-        paddingHorizontal: 12,
-        paddingTop: 10,
-        paddingBottom: 6,
-        gap: 6,
-      },
       input: {
-        height: compact ? 48 : 60,
         color: colors.foreground,
         fontSize: FONT_SIZE.content,
         lineHeight: lineHeightFor(FONT_SIZE.content),
@@ -545,17 +384,16 @@ function WorkerComposer({
         outlineWidth: 0,
         textAlignVertical: "top" as const,
       },
-      toolbar: { flexDirection: "row" as const, justifyContent: "flex-end" as const },
       send: {
-        width: 30,
-        height: 30,
-        borderRadius: 15,
+        width: 32,
+        height: 32,
+        borderRadius: 16,
         alignItems: "center" as const,
         justifyContent: "center" as const,
         backgroundColor: colors.accent,
       },
       sendIdle: { backgroundColor: colors.surface2 },
-      grownFrame: {
+      frame: {
         paddingHorizontal: 8,
         paddingTop: 6,
         paddingBottom: 6,
@@ -563,7 +401,7 @@ function WorkerComposer({
         borderTopColor: colors.border,
         backgroundColor: colors.surface0,
       },
-      grownBox: {
+      box: {
         flexDirection: "row" as const,
         alignItems: "flex-end" as const,
         gap: 6,
@@ -575,10 +413,9 @@ function WorkerComposer({
         paddingRight: 5,
         paddingVertical: 5,
       },
-      grownInput: { flex: 1, minWidth: 0, paddingVertical: 6 },
-      grownSend: { width: 32, height: 32, borderRadius: 16 },
+      inputSlot: { flex: 1, minWidth: 0, paddingVertical: 6 },
     };
-  }, [theme, compact]);
+  }, [theme]);
 
   function send(): void {
     const words = text.trim();
@@ -594,92 +431,50 @@ function WorkerComposer({
   }
 
   const idle = sending || text.trim() === "";
-  if (grow) {
-    return (
-      <View style={styles.grownFrame}>
-        <View style={styles.grownBox}>
-          <View style={styles.grownInput}>
-            <GrowingSlot twin={growing.twin}>
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                editable={!sending}
-                placeholder="Message the worker…"
-                placeholderTextColor={theme.colors.foregroundMuted}
-                accessibilityLabel={`Message ${agent.title ?? "the worker"}`}
-                multiline
-                onKeyPress={
-                  submitOnEnter
-                    ? (event: WebKeyPressEvent) => {
-                        if (!isSendKey(event.nativeEvent) || sending || text.trim() === "") return;
-                        event.preventDefault();
-                        send();
-                      }
-                    : undefined
-                }
-                style={[styles.input, { height: growing.height }]}
-              />
-            </GrowingSlot>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send"
-            accessibilityState={{ disabled: idle }}
-            disabled={idle}
-            onPress={send}
-            // Drawn 32 across; the touch target is 44.
-            hitSlop={6}
-            style={[styles.send, styles.grownSend, idle ? styles.sendIdle : null]}
-          >
-            <Icon name="ArrowUp" size={16} color={idle ? theme.colors.foregroundMuted : theme.colors.accentForeground} />
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
   return (
     <View style={styles.frame}>
       <View style={styles.box}>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          editable={!sending}
-          placeholder="Message the worker…"
-          placeholderTextColor={theme.colors.foregroundMuted}
-          accessibilityLabel={`Message ${agent.title ?? "the worker"}`}
-          multiline
-          onKeyPress={
-            submitOnEnter
-              ? (event: WebKeyPressEvent) => {
-                  if (!isSendKey(event.nativeEvent) || sending || text.trim() === "") return;
-                  event.preventDefault();
-                  send();
-                }
-              : undefined
-          }
-          style={styles.input}
-        />
-        <View style={styles.toolbar}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Send"
-            accessibilityState={{ disabled: idle }}
-            disabled={idle}
-            onPress={send}
-            style={[styles.send, idle ? styles.sendIdle : null]}
-          >
-            <Icon name="ArrowUp" size={16} color={idle ? theme.colors.foregroundMuted : theme.colors.accentForeground} />
-          </Pressable>
+        <View style={styles.inputSlot}>
+          <GrowingSlot twin={growing.twin}>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              editable={!sending}
+              placeholder="Message the worker…"
+              placeholderTextColor={theme.colors.foregroundMuted}
+              accessibilityLabel={`Message ${agent.title ?? "the worker"}`}
+              multiline
+              onKeyPress={
+                submitOnEnter
+                  ? (event: WebKeyPressEvent) => {
+                      if (!isSendKey(event.nativeEvent) || sending || text.trim() === "") return;
+                      event.preventDefault();
+                      send();
+                    }
+                  : undefined
+              }
+              style={[styles.input, { height: growing.height }]}
+            />
+          </GrowingSlot>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Send"
+          accessibilityState={{ disabled: idle }}
+          disabled={idle}
+          onPress={send}
+          // Drawn 32 across; the touch target is 44.
+          hitSlop={6}
+          style={[styles.send, idle ? styles.sendIdle : null]}
+        >
+          <Icon name="ArrowUp" size={16} color={idle ? theme.colors.foregroundMuted : theme.colors.accentForeground} />
+        </Pressable>
       </View>
     </View>
   );
 }
 
 function ActivityTranscript({
-  agent,
-  report,
-  column,
   agentId,
   serverId,
   revision,
@@ -688,14 +483,8 @@ function ActivityTranscript({
   onOpen,
   onOpenFile,
   fadeTop = false,
-  header = true,
   onUsage,
 }: {
-  /** The worker as the board last saw it, for the header; null draws none. */
-  agent: AgentSummary | null;
-  report: CrewReportSummary | null;
-  /** The card's column, so the face strikes the same pose as on the board. */
-  column: FleetCard["column"] | undefined;
   agentId: string;
   /** The connected host the crewmate runs on; null for the board's own host. */
   serverId: string | null;
@@ -710,9 +499,7 @@ function ActivityTranscript({
    * past rather than drawn under it. Phones and tablets, where the transcript is short.
    */
   fadeTop?: boolean;
-  /** Draws the worker's header over the transcript; a phone's card view folds it into its own bar. */
-  header?: boolean;
-  /** Told the worker's context use whenever it changes, for a bar that shows it outside the transcript. */
+  /** Told the worker's context use whenever it changes, for the card's bar, which shows it. */
   onUsage?: ((usage: Usage) => void) | undefined;
 }) {
   const toast = useToast();
@@ -925,17 +712,6 @@ function ActivityTranscript({
 
   return (
     <View style={{ flex: 1 }}>
-      {agent === null || !header ? null : (
-        <WorkerHeader
-          agent={agent}
-          theme={theme}
-          compact={compact}
-          report={report}
-          column={column}
-          usedTokens={timeline.agent?.lastUsage?.contextWindowUsedTokens}
-          maxTokens={timeline.agent?.lastUsage?.contextWindowMaxTokens}
-        />
-      )}
       {/*
         A question's free-text box is at the end of this list; on iOS the system
         insets it for the keyboard and scrolls the focused box into view.

@@ -69,7 +69,7 @@ compile time. This file covers only what is specific to `mission-control`.
 | `client/context-menu.tsx`     | A card's right-click (long press on touch) menu, drawn over the board: `contextMenu` in `card-commands.ts` lists what the open card offers. |
 | `client/board-tasks.ts`       | The board's tasks for a card that names another: "Blocked by" and its picker, provided by the screen and panels. |
 | `client/avatar.ts`, `avatar-view.tsx` | Each worker's face: a 16×16 pixel robot or alien picked from parts by hashing its agent id, as inline SVG, posed by its state in a short loop, with a dot in the corner for an error or a request. |
-| `client/worker-state.ts`      | Where a worker stands as one icon, word and tone, for a card's state line and the worker's header. Pure. |
+| `client/worker-state.ts`      | Where a worker stands as one icon, word and tone, for a card's state line and the card view's bar. Pure. |
 | `client/card-details.tsx`     | An open card's host, branch and folder, as Paseo's hover card draws them, and when it was added. |
 | `client/local-host.ts`        | The board's own host label, provided by the screen and panels for a local worker's host line. |
 | `client/card-answer.ts`       | A card's `(actions: …)` buttons and a held card's Answer box: what they send, the kept drafts. Pure. |
@@ -643,11 +643,10 @@ mark. **The face moves a little**: a loop of two or three frames (`avatarFrame`,
 agent's hash so a board does not move in step). A worker that needs the user (a pending request, or a card in Needs
 you) raises a hand and waves it; a working one rests its chin on its hand, leaning in, blinking now and then and sitting
 up. A waiting one dozes, a Zzz in the theme's muted colour floating up from its top right a z at a time. Idle and failed faces are still. Every face runs off one module-scope clock in `avatar-view.tsx`, which
-stops when no face is animated, and each frame's SVG is made once. In a card's view the face heads the worker's transcript in the manner of Scape's session header
-(`WorkerHeader`): the face; the worker's title and branch (`useWorkerBranch`, the same query the card's facts
-use); its state with an icon in that state's colour; and on the right a context bar from the timeline snapshot's
-`lastUsage`, with the host and the model as people say it (`modelName`: "Opus 5.5") under it. So the worker sits
-over the work it is doing rather than beside the task's title. To look at a batch, write their SVG into one sheet and screenshot it with headless Chrome:
+stops when no face is animated, and each frame's SVG is made once. In a card's view the face leads the view's one bar, beside the task's title (the worker's own title after it,
+muted, when it differs) over its state, with an icon in that state's colour, then the model as people say it
+(`modelName`: "Opus 5.5") and the context share from the timeline snapshot's `lastUsage`. The host and branch
+are the card's facts, under Details. To look at a batch, write their SVG into one sheet and screenshot it with headless Chrome:
 ImageMagick's own SVG renderer drops 1×1 rects, the eyes among them.
 
 ## A card's own view
@@ -959,23 +958,25 @@ open, and a desktop window dragged narrow is the same layout as either.
   still holds about 480 pt of chat and the rest three whole 280 pt board columns (see the comment on
   `SPLIT_MIN_WIDTH`), so a 1440 pt window with the sidebar closed stays split.
 
-On a phone, or a medium layout narrower than 680 pt, a card's view stacked over its worker shows one or the other, the whole pane each:
-the card folds to a "Details" row by default, so the transcript gets the room, and the worker's box is
-one line beside Send that grows with the words (`client/growing-input.tsx`). A box cannot be sized from
-its own content height, which a web textarea never reports below its own height, so an invisible `Text`
-twin lays the words out at the same width and the box takes its height. The transcript fades at its top
-while scrolled, so a row cut by the header reads as scrolled past. Mission Control's composer grows the
-same way. Buttons there are at least 44 pt (`touch` on `IconButton` and `Segmented`); small marks that
-cannot grow (a chip, the card's chat button, Send) get `hitSlop` instead.
+**A card's view with a worker has one bar, on every layout**: back, the face, the title over the state, the
+model and the context share, the Details toggle, diff and open. There is no header over the transcript. Where
+the card is stacked over its worker (narrower than 680 pt: a phone, the user's 951 pt window with the sidebar
+open, the wide layout's right pane) it shows one or the other, the whole pane each: the card folds behind the
+bar's Details toggle by default, so the transcript gets the room. The bar's face, title and state are the
+toggle, with a chevron and, from 480 pt, the word "Details". What the card asks the user, its hold and its
+`(actions: …)` buttons at full touch size (`CardDecisionStrip`, `cardDecision`), sits between the bar and the
+transcript while Details is folded, so a decision never needs Details opened. Wider, the card is a column
+beside the transcript and nothing folds. So the transcript starts about 95 pt below the host's title bar on a
+medium layout (the screen's tab row, then the bar) and about 50 pt on a phone, where the screen's own header
+row steps aside while a card is open on the Board tab, the bar having the way back.
 
-A phone's stacked card view goes further, so the transcript starts about 90 pt below the host's header
-rather than 220: the screen's own header row steps aside while a card is open on the Board tab (the
-card's bar has the way back), the card's bar and the worker's header are one row (back, face, title over
-the state, diff, open), and Details is a slim line, 32 pt drawn and padded to a 44 pt target, carrying the
-model and the context share the header used to. What the card asks the user, its hold and its
-`(actions: …)` buttons at full touch size (`CardDecisionStrip`, `cardDecision`), sits between Details and
-the transcript while Details is folded, so a decision never needs Details opened. A medium layout keeps
-the bar, the boxed Details row and the worker's header.
+The worker's box is one line beside Send that grows with the words (`client/growing-input.tsx`), on
+every layout. A box cannot be sized from its own content height, which a web textarea never reports
+below its own height, so an invisible `Text` twin lays the words out at the same width and the box takes
+its height. On a phone or a medium layout the transcript fades at its top while scrolled, so a row cut by
+the bar reads as scrolled past. Mission Control's composer grows the same way on those layouts. Buttons
+there are at least 44 pt (`touch` on `IconButton` and `Segmented`); small marks that cannot grow (a chip,
+the card's chat button, Send) get `hitSlop` instead.
 
 The board's drag grip is drawn 18 pt and touched 44 pt: padding and a matching negative margin
 (`touchPadding`), since the web renderer ignores `hitSlop` on the plain view the drag responder sits on.
