@@ -42,7 +42,7 @@ import {
   watchTone,
 } from "./format";
 import { watchPath, type AgentSummary, type BacklogItem, type FleetCard, type WatchSummary } from "../shared/fleet";
-import { activeCrewCount } from "./screen";
+import { activeCrewCount, boardAttention } from "./screen";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -930,6 +930,20 @@ describe("the sidebar row's badge", () => {
       crewCard("closed", { status: "closed" }, "idle"),
     ];
     expect(activeCrewCount(cards)).toBe(3);
+  });
+});
+
+describe("the Board tab's badges", () => {
+  it("counts the cards in Needs you, held tasks included, and the failed ones apart", () => {
+    expect(boardAttention([])).toEqual({ needsYou: 0, failed: 0 });
+    const cards = [
+      crewCard("permission", { status: "idle", pendingPermissions: 1 }, "blocked"),
+      crewCard("held-task", null, "blocked"),
+      crewCard("failed", { status: "error" }, "failed"),
+      crewCard("working", { status: "running" }, "working"),
+      crewCard("idle", { status: "idle" }, "idle"),
+    ];
+    expect(boardAttention(cards)).toEqual({ needsYou: 2, failed: 1 });
   });
 });
 

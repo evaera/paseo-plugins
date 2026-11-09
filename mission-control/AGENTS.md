@@ -100,8 +100,8 @@ compile time. This file covers only what is specific to `mission-control`.
 | `client/type-scale.ts`        | Every font size, by role, at Paseo's default sizes; the one file to change when the theme carries Paseo's font setting. |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
 | `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
-| `client/layout-tier.ts`       | Phone, tablet or wide, from `compact` and the surface's width, and the sizes each derives: fitted board columns, snap offsets, a growing box's height. Pure. |
-| `client/edges.tsx`            | The safe-area edges on a phone or a tablet, and the fade (with an optional chevron button) that says a row or a transcript goes on. |
+| `client/layout-tier.ts`       | Phone, medium or wide, from `compact` and the surface's width, and the sizes each derives: fitted board columns, snap offsets, a growing box's height. Pure. |
+| `client/edges.tsx`            | The safe-area edges on a phone or a medium layout, and the fade (with an optional chevron button) that says a row or a transcript goes on. |
 | `client/growing-input.tsx`    | A text box that starts one line tall and grows with its text, sized from an invisible twin. |
 
 ## The plugin never dispatches a crewmate
@@ -204,7 +204,7 @@ keeps the status line and the item's hold, so "Done: PR …" still reads on it f
 
 The board draws only columns with a card in them, folded or not (`board.tsx`), as one row of fixed-width
 columns in `BOARD_ORDER` that scrolls sideways, each column scrolling on its own; a phone stacks them, and a
-tablet fits the columns to its pane (see *Phones, tablets and foldables*).
+medium layout fits the columns to the surface (see *Phones, tablets and foldables*).
 Within a column the user's drag order comes first (`client/order.ts`), then the daemon's order.
 
 **Changes move rather than jump.** `board-motion.ts` remembers, in module scope, which column every card was
@@ -943,15 +943,23 @@ open, and a desktop window dragged narrow is the same layout as either.
 - **phone** (`compact`): one pane at a time behind a tab bar at the foot, where a thumb reaches it. The
   header is one row, the coordinator's state and the buttons, since the host's own header already says
   "Mission Control" above it.
-- **tablet** (not compact, narrower than `TABLET_MAX_WIDTH`, 1040 pt): chat beside the board, the chat
-  foldable from the header to its rail. Board columns are fitted to the pane so two whole ones show
-  (`fittedColumnWidth`), the row snaps to a column's start on iOS and Android, and an end with more beyond
-  it fades with a chevron button that moves a column along. The suggestion chips fade at a cut end too.
-- **wide**: everything else, drawn exactly as before. 1040 is below a 1366 pt window with Paseo's 320 pt
-  sidebar open (a 1046 pt surface), so desktops stay wide; a desktop window narrower than about 1360 pt
-  with the sidebar open gets the tablet layout, which is the point.
+- **medium** (not compact, narrower than `SPLIT_MIN_WIDTH`, 1400 pt): one pane at a time, full width,
+  behind tabs that lead the header row (Coordinator, Board, Files), underlined like Paseo's workspace
+  tabs, where the wide layout's Board/Files switch sits; a desktop has the height to spare and no thumb
+  to reach a foot. An unfolded foldable, a tablet, and a desktop window with Paseo's sidebar open are all
+  here: a 1440 pt window with the sidebar open leaves a 1120 pt surface, where the split squeezed the board
+  to one cut column. The chat is held to an 880 pt column, centred. A card opens in the Board tab's place,
+  full width, with the card beside its transcript and *Crew* to go back. While the board is out of sight
+  its tab counts the cards in Needs you (warning) and the failed ones (danger), `boardAttention`; the
+  Coordinator tab counts Mission Control's own pending questions while the chat is out of sight. Board
+  columns are fitted to the surface so whole ones show (`fittedColumnWidth`), the row snaps to a column's
+  start on iOS and Android, and an end with more beyond it fades with a chevron button that moves a
+  column along. The suggestion chips fade at a cut end too.
+- **wide**: everything else, drawn exactly as before. 1400 is where the split's default 36% chat share
+  still holds about 480 pt of chat and the rest three whole 280 pt board columns (see the comment on
+  `SPLIT_MIN_WIDTH`), so a 1440 pt window with the sidebar closed stays split.
 
-On a phone or a tablet a card's view stacked over its worker shows one or the other, the whole pane each:
+On a phone, or a medium layout narrower than 680 pt, a card's view stacked over its worker shows one or the other, the whole pane each:
 the card folds to a "Details" row by default, so the transcript gets the room, and the worker's box is
 one line beside Send that grows with the words (`client/growing-input.tsx`). A box cannot be sized from
 its own content height, which a web textarea never reports below its own height, so an invisible `Text`
@@ -966,8 +974,8 @@ card's bar has the way back), the card's bar and the worker's header are one row
 the state, diff, open), and Details is a slim line, 32 pt drawn and padded to a 44 pt target, carrying the
 model and the context share the header used to. What the card asks the user, its hold and its
 `(actions: …)` buttons at full touch size (`CardDecisionStrip`, `cardDecision`), sits between Details and
-the transcript while Details is folded, so a decision never needs Details opened. A tablet keeps the
-bar, the boxed Details row and the worker's header.
+the transcript while Details is folded, so a decision never needs Details opened. A medium layout keeps
+the bar, the boxed Details row and the worker's header.
 
 The board's drag grip is drawn 18 pt and touched 44 pt: padding and a matching negative margin
 (`touchPadding`), since the web renderer ignores `hitSlop` on the plain view the drag responder sits on.

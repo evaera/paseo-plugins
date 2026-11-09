@@ -66,6 +66,8 @@ const TOOL_RUN_VISIBLE = 2;
 const INPUT_HEIGHT = 72;
 const INPUT_HEIGHT_COMPACT = 56;
 const INPUT_MAX_LINES = 6;
+/** The widest the chat's transcript and composer grow on a medium layout, where the chat has the whole surface. */
+const CHAT_COLUMN_MAX_WIDTH = 880;
 
 
 /**
@@ -342,6 +344,7 @@ export function CoordinatorChat({
         backgroundColor: colors.surface0,
       },
       composer: { paddingHorizontal: compact ? 8 : 12, paddingTop: 8, paddingBottom: compact ? 8 : 12, gap: 8 },
+      column: { width: "100%" as const, maxWidth: CHAT_COLUMN_MAX_WIDTH, alignSelf: "center" as const },
       box: {
         borderWidth: 1,
         borderColor: colors.border,
@@ -531,7 +534,7 @@ export function CoordinatorChat({
       }}
     >
       <View style={styles.transcript}>
-        <ScrollView {...follow.scrollProps} style={styles.scroller} contentContainerStyle={styles.transcriptBody}>
+        <ScrollView {...follow.scrollProps} style={styles.scroller} contentContainerStyle={[styles.transcriptBody, tier === "medium" ? styles.column : null]}>
           {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
           {groups.length === 0 && pending.length === 0 ? (
             <Text style={styles.hint}>{timeline.loading ? "Loading the conversation…" : "Nothing said yet. Ask below."}</Text>
@@ -572,7 +575,7 @@ export function CoordinatorChat({
         composer pads itself (`ComposerFrame`).
       */}
       <ComposerFrame inset={tier === "wide"} style={styles.composerFrame}>
-        <View style={styles.composer}>
+        <View style={[styles.composer, tier === "medium" ? styles.column : null]}>
           <SuggestionChips
             suggestions={suggestions}
             theme={theme}

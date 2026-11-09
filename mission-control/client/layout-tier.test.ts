@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  TABLET_COLUMNS,
+  FITTED_COLUMNS,
   columnOffsets,
   fittedColumnWidth,
   growingHeight,
+  SPLIT_MIN_WIDTH,
   layoutTier,
   nextOffset,
   overflowEdges,
@@ -18,15 +19,32 @@ describe("the layout tier", () => {
     expect(layoutTier(true, 1200)).toBe("phone");
   });
 
-  it("fits an unfolded foldable and a 1024 pt tablet in the tablet layout", () => {
-    expect(layoutTier(false, 951)).toBe("tablet");
-    expect(layoutTier(false, 1024)).toBe("tablet");
+  it("gives an unfolded foldable and a tablet one pane at a time", () => {
+    expect(layoutTier(false, 951)).toBe("medium");
+    expect(layoutTier(false, 1024)).toBe("medium");
+    expect(layoutTier(false, 1366)).toBe("medium");
   });
 
-  it("leaves a desktop window wide, Paseo's sidebar open included", () => {
-    expect(layoutTier(false, 1120)).toBe("wide");
-    expect(layoutTier(false, 1046)).toBe("wide");
-    expect(layoutTier(false, 1600)).toBe("wide");
+  it("gives a desktop window with Paseo's 320 pt sidebar open one pane at a time", () => {
+    expect(layoutTier(false, 1440 - 320)).toBe("medium");
+    expect(layoutTier(false, 1680 - 320)).toBe("medium");
+    expect(layoutTier(false, SPLIT_MIN_WIDTH - 1)).toBe("medium");
+  });
+
+  it("keeps the split from the threshold up, a 1440 pt window with the sidebar closed included", () => {
+    expect(layoutTier(false, SPLIT_MIN_WIDTH)).toBe("wide");
+    expect(layoutTier(false, 1440)).toBe("wide");
+    expect(layoutTier(false, 1920 - 320)).toBe("wide");
+  });
+
+  it("puts the threshold where the split's default shares still hold a readable chat and three whole columns", () => {
+    const chatShare = 0.36;
+    const handle = 9;
+    const threeColumns = 3 * 280 + 2 * FITTED_COLUMNS.gap + 2 * 12;
+    expect(chatShare * SPLIT_MIN_WIDTH).toBeGreaterThanOrEqual(480);
+    expect((1 - chatShare) * SPLIT_MIN_WIDTH - handle).toBeGreaterThanOrEqual(threeColumns);
+    // And not much more: 20 pt narrower and the board cuts its third column.
+    expect((1 - chatShare) * (SPLIT_MIN_WIDTH - 20) - handle).toBeLessThan(threeColumns);
   });
 
   it("draws wide until the surface has been measured", () => {
@@ -34,22 +52,22 @@ describe("the layout tier", () => {
   });
 });
 
-describe("tablet board columns", () => {
+describe("fitted board columns", () => {
   it("fits two whole columns beside the folded strip in an unfolded foldable's board pane", () => {
     const width = fittedColumnWidth(600, 3, 1);
-    expect(width).toBeGreaterThanOrEqual(TABLET_COLUMNS.min);
+    expect(width).toBeGreaterThanOrEqual(FITTED_COLUMNS.min);
     // Two columns, the strip, the gaps and the padding fill the pane without cutting the second column.
-    expect(2 * width + TABLET_COLUMNS.gap + 40 + TABLET_COLUMNS.gap + 2 * TABLET_COLUMNS.pad).toBeLessThanOrEqual(600);
+    expect(2 * width + FITTED_COLUMNS.gap + 40 + FITTED_COLUMNS.gap + 2 * FITTED_COLUMNS.pad).toBeLessThanOrEqual(600);
   });
 
   it("gives a lone column the pane, up to the cap", () => {
     expect(fittedColumnWidth(300, 1, 0)).toBe(280);
-    expect(fittedColumnWidth(900, 1, 0)).toBe(TABLET_COLUMNS.max);
+    expect(fittedColumnWidth(900, 1, 0)).toBe(FITTED_COLUMNS.max);
   });
 
   it("shows one whole column when two would be too narrow", () => {
-    expect(fittedColumnWidth(480, 4, 0)).toBe(TABLET_COLUMNS.max);
-    expect(fittedColumnWidth(420, 4, 0)).toBe(TABLET_COLUMNS.max);
+    expect(fittedColumnWidth(480, 4, 0)).toBe(FITTED_COLUMNS.max);
+    expect(fittedColumnWidth(420, 4, 0)).toBe(FITTED_COLUMNS.max);
   });
 
   it("never goes wider than the pane itself", () => {

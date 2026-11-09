@@ -19,3 +19,14 @@ export function activeCrewCount(cards: readonly FleetCard[]): number {
       card.agent !== null && card.agent.status !== "closed" && (card.column === "working" || card.column === "idle"),
   ).length;
 }
+
+/**
+ * What the Board tab's badges count while the board is out of sight: the cards in Needs you (a held
+ * task, a worker waiting on a permission), and the failed ones, each drawn in its own tone.
+ */
+export function boardAttention(cards: readonly FleetCard[]): { needsYou: number; failed: number } {
+  return {
+    needsYou: cards.filter((card) => card.column === "blocked").length,
+    failed: cards.filter((card) => card.column === "failed").length,
+  };
+}

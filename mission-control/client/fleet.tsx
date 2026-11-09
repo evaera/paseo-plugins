@@ -60,6 +60,7 @@ import { RunOpenContext } from "./run-embed";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 import { FONT_SIZE } from "./type-scale";
 import { LayoutTierContext, TOUCH_TARGET, layoutTier } from "./layout-tier";
+import { boardAttention } from "./screen";
 import { SafeEdges } from "./edges";
 
 export const FLEET_QUERY_KEY = ["mission-control", "fleet"] as const;
@@ -166,8 +167,12 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
    */
   const [width, setWidth] = useState(0);
   const tier = layoutTier(compact, width);
-  /** Phone and tablet: the layouts a finger drives, which get touch-sized targets and the safe-area edges. */
-  const touch = tier !== "wide";
+  /**
+   * Phone and medium: one pane at a time, behind tabs. Both may be driven by a finger (a tablet is
+   * medium), so both get touch-sized targets and the safe-area edges.
+   */
+  const single = tier !== "wide";
+  const touch = single;
   const [tab, setTabState] = useState<Tab>(cachedTab);
   const [rightPane, setRightPaneState] = useState(cachedRightPane);
   const [watching, setWatchingState] = useState(cachedWatching);
@@ -286,6 +291,8 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
       },
+      // The tabs' underline sits on the header's border, so the row loses its vertical padding.
+      headerWithTabs: { paddingTop: 0, paddingBottom: 0 },
       headerRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexWrap: touch ? ("nowrap" as const) : ("wrap" as const) },
       title: { color: colors.foreground, fontSize: compact ? FONT_SIZE.heading : FONT_SIZE.display, fontWeight: "600" as const },
       spacer: { flex: 1 },
@@ -316,6 +323,29 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       },
       tabText: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontWeight: "500" as const },
       tabTextActive: { color: colors.accent, fontWeight: "700" as const },
+      // A medium layout's tabs lead the header row, underlined like Paseo's own workspace tabs.
+      topTabs: { flexDirection: "row" as const, alignSelf: "stretch" as const, gap: 2 },
+      topTab: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        minHeight: TOUCH_TARGET,
+        paddingHorizontal: 12,
+        borderBottomWidth: 2,
+        borderBottomColor: "transparent",
+      },
+      topTabActive: { borderBottomColor: colors.accent },
+      topTabText: { color: colors.foregroundMuted, fontSize: FONT_SIZE.body, fontWeight: "500" as const },
+      topTabTextActive: { color: colors.foreground, fontWeight: "600" as const },
+      badge: {
+        minWidth: 18,
+        height: 18,
+        paddingHorizontal: 5,
+        borderRadius: 9,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      badgeText: { color: colors.accentForeground, fontSize: FONT_SIZE.caption, fontWeight: "700" as const },
       loading: { color: colors.foregroundMuted, fontSize: FONT_SIZE.body, padding: 20 },
     };
   }, [theme, compact, touch]);
@@ -360,7 +390,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
    */
   function tellCoordinator(text: string, onFailure?: () => void, onSent?: () => void): boolean {
     if (coordinator === null || !coordinatorSender.send(userMessage(text, []), onFailure, onSent)) return false;
-    if (compact) setTab("chat");
+    if (single) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
     return true;
   }
@@ -389,7 +419,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           onOpen={() => {
             openedDraft = null;
             setWatching(openedRef(card));
-            if (compact) setTab("board");
+            if (single) setTab("board");
             else {
               if (rightPane !== "board") setRightPane("board");
               if (values.boardCollapsed) save({ boardCollapsed: false });
@@ -435,7 +465,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   function chatAboutCard(card: FleetCard): void {
     chatAbout.set({ key: card.key, title: card.title, subject: subject(card), agentId: card.agent?.id ?? null });
     chatAbout.focus();
-    if (compact) setTab("chat");
+    if (single) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
   }
 
@@ -476,11 +506,11 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       .finally(() => setEnabling(false));
   }
 
-  /** Shows the Files view — the tab on a phone, the right-hand pane on a wide layout, unhidden — with `path` open. */
+  /** Shows the Files view, the tab in one pane or the right-hand pane on a wide layout, unhidden, with `path` open. */
   function openFile(path: string): void {
-    if (compact) setTab("files");
+    if (single) setTab("files");
     else setRightPane("files");
-    const reveal = revealFilesPatch(compact, values.boardCollapsed);
+    const reveal = revealFilesPatch(single, values.boardCollapsed);
     if (reveal !== null) save(reveal);
     setFilesRequest({ path, at: Date.now() });
   }
@@ -547,8 +577,8 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     );
   }
   // The question itself is in the chat; the banner is for when the chat is
-  // out of sight — folded away, or behind the Crew tab on a phone.
-  const chatHidden = compact ? shownTab !== "chat" : values.chatCollapsed;
+  // out of sight: folded away, or behind another tab in one pane.
+  const chatHidden = single ? shownTab !== "chat" : values.chatCollapsed;
   if (coordinator !== null && coordinator.pendingPermissions > 0 && chatHidden) {
     banners.push(
       <Banner
@@ -559,7 +589,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
         action={{
           label: "Show",
           icon: "MessageSquare",
-          onPress: () => (compact ? setTab("chat") : save({ chatCollapsed: false })),
+          onPress: () => (single ? setTab("chat") : save({ chatCollapsed: false })),
         }}
       />,
     );
@@ -582,22 +612,77 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     banners.push(<Banner key={warning} theme={theme} tone="warning" text={warning} />);
   }
 
-  // The host's own header already says "Mission Control" above the screen; a phone or a tablet has no
-  // room to say it twice, so there the row is the coordinator's state and the buttons.
+  const tabs: readonly { id: Tab; label: string; icon: string }[] = [
+    { id: "chat", label: "Coordinator", icon: "MessageSquare" },
+    { id: "board", label: "Board", icon: "SquareKanban" },
+    { id: "files", label: "Files", icon: "Folder" },
+  ];
+  const attention = boardAttention(data?.cards ?? []);
+
+  function badge(count: number, color: string, label: string): ReactNode {
+    if (count === 0) return null;
+    return (
+      <View key={label} style={[styles.badge, { backgroundColor: color }]} accessibilityLabel={label}>
+        <Text style={styles.badgeText}>{count}</Text>
+      </View>
+    );
+  }
+
+  /**
+   * A medium layout's tabs, in the header row where the wide layout's Board/Files switch sits. While
+   * the board is out of sight its tab counts what waits there, cards in Needs you and failed ones; the
+   * Coordinator tab counts Mission Control's own questions while the chat is out of sight.
+   */
+  const topTabs =
+    tier !== "medium" || coordinator === null || data === null ? null : (
+      <View style={styles.topTabs} accessibilityRole="tablist">
+        {tabs.map((item) => {
+          const selected = shownTab === item.id;
+          const color = selected ? theme.colors.foreground : theme.colors.foregroundMuted;
+          const badges = selected
+            ? null
+            : item.id === "board"
+              ? [
+                  badge(attention.needsYou, theme.colors.statusWarning, `${attention.needsYou} in Needs you`),
+                  badge(attention.failed, theme.colors.statusDanger, `${attention.failed} failed`),
+                ]
+              : item.id === "chat"
+                ? badge(coordinator.pendingPermissions, theme.colors.statusWarning, "Mission Control is waiting for your answer")
+                : null;
+          return (
+            <Pressable
+              key={item.id}
+              accessibilityRole="tab"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected }}
+              style={[styles.topTab, selected ? styles.topTabActive : null]}
+              onPress={() => setTab(item.id)}
+            >
+              <Icon name={item.icon} size={16} color={color} />
+              <Text style={[styles.topTabText, selected ? styles.topTabTextActive : null]} numberOfLines={1}>
+                {item.label}
+              </Text>
+              {badges}
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+
+  // The host's own header already says "Mission Control" above the screen; a phone or a medium layout has
+  // no room to say it twice, so there the row is the tabs, the coordinator's state and the buttons.
   const header = (
-    <View style={styles.header}>
+    <View style={[styles.header, topTabs === null ? null : styles.headerWithTabs]}>
       <View style={styles.headerRow}>
         {touch ? null : <Icon name="SatelliteDish" size={compact ? 16 : 18} color={theme.colors.foreground} />}
         {touch ? null : <Text style={styles.title}>Mission Control</Text>}
+        {topTabs}
+        {topTabs === null ? null : <View style={styles.spacer} />}
         {coordinator === null ? null : (
           <Chip theme={theme} text={`Coordinator · ${agentStatusLabel(coordinator)}`} color={agentStatusTone(theme, coordinator)} />
         )}
-        <View style={styles.spacer} />
-        {/* A tablet's board wants the width more often than a desktop's: the chat folds from here to the rail. */}
-        {tier === "tablet" && coordinator !== null && data !== null && !values.chatCollapsed && !values.boardCollapsed ? (
-          <IconButton icon="PanelLeftClose" label="Hide the chat" theme={theme} onPress={() => save({ chatCollapsed: true })} touch />
-        ) : null}
-        {!compact && coordinator !== null && data !== null && !values.boardCollapsed ? (
+        {topTabs === null ? <View style={styles.spacer} /> : null}
+        {tier === "wide" && coordinator !== null && data !== null && !values.boardCollapsed ? (
           <Segmented
             theme={theme}
             value={rightPane}
@@ -631,7 +716,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   );
 
   /**
-   * Every layout's root: measures the surface, provides the tier, and on a phone or a tablet keeps the
+   * Every layout's root: measures the surface, provides the tier, and on a phone or a medium layout keeps the
    * content inside the safe area on the sides and at the foot (the host pads only the top). The same
    * element in every tier, so a fold or an unfold that crosses one does not remount the screen.
    */
@@ -725,7 +810,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           suggestions={data.suggestions}
           onPickSuggestion={(prompt) => tellCoordinator(prompt)}
           onRemoveSuggestion={dismissSuggestion}
-          visible={compact ? shownTab === "chat" : !values.chatCollapsed}
+          visible={single ? shownTab === "chat" : !values.chatCollapsed}
           seenSeq={values.chatSeen[coordinator.id] ?? null}
           // Only Mission Control on board: a released one's entry would never be read again.
           onSeen={(seq) => save({ chatSeen: { [coordinator.id]: seq } })}
@@ -765,19 +850,14 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     );
   const crew = <BoardTasksContext.Provider value={boardTasks}>{crewView}</BoardTasksContext.Provider>;
 
-  if (compact) {
-    const tabs: readonly { id: Tab; label: string; icon: string }[] = [
-      { id: "chat", label: "Coordinator", icon: "MessageSquare" },
-      { id: "board", label: "Board", icon: "SquareKanban" },
-      { id: "files", label: "Files", icon: "Folder" },
-    ];
+  if (single) {
     return frame(
       <>
         {/*
           An open card is a step down from the board with a bar of its own, back included, so on a phone it
           takes the header's row too: the transcript under it gets the height. Back on the board, it returns.
         */}
-        {shownTab === "board" && watching !== null ? null : header}
+        {compact && shownTab === "board" && watching !== null ? null : header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
         <View style={{ flex: 1, minHeight: 0 }}>
           {shownTab === "chat" ? (
@@ -785,30 +865,32 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           ) : shownTab === "board" ? (
             crew
           ) : (
-            <FilesView theme={theme} compact request={filesRequest} />
+            <FilesView theme={theme} compact={compact} request={filesRequest} />
           )}
         </View>
-        <View style={styles.tabs} accessibilityRole="tablist">
-          {tabs.map((tab) => {
-            const selected = shownTab === tab.id;
-            const color = selected ? theme.colors.accent : theme.colors.foregroundMuted;
-            return (
-              <Pressable
-                key={tab.id}
-                accessibilityRole="tab"
-                accessibilityLabel={tab.label}
-                accessibilityState={{ selected }}
-                style={styles.tab}
-                onPress={() => setTab(tab.id)}
-              >
-                <Icon name={tab.icon} size={20} color={color} />
-                <Text style={[styles.tabText, selected ? styles.tabTextActive : null]} numberOfLines={1}>
-                  {tab.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        {compact ? (
+          <View style={styles.tabs} accessibilityRole="tablist">
+            {tabs.map((tab) => {
+              const selected = shownTab === tab.id;
+              const color = selected ? theme.colors.accent : theme.colors.foregroundMuted;
+              return (
+                <Pressable
+                  key={tab.id}
+                  accessibilityRole="tab"
+                  accessibilityLabel={tab.label}
+                  accessibilityState={{ selected }}
+                  style={styles.tab}
+                  onPress={() => setTab(tab.id)}
+                >
+                  <Icon name={tab.icon} size={20} color={color} />
+                  <Text style={[styles.tabText, selected ? styles.tabTextActive : null]} numberOfLines={1}>
+                    {tab.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
       </>,
     );
   }

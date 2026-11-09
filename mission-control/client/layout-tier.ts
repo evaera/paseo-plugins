@@ -7,21 +7,28 @@
  * the same layout as either.
  *
  * - **phone**: the host says compact. One pane at a time, tabs at the foot.
- * - **tablet**: not compact, but narrower than `TABLET_MAX_WIDTH`, an unfolded foldable or a 1024 pt
- *   tablet, chat and board side by side with board columns fitted to the pane.
- * - **wide**: everything wider, laid out exactly as it always was. A 1366 pt desktop window with Paseo's
- *   320 pt sidebar open leaves the surface 1046 pt, so it stays wide.
+ * - **medium**: not compact, but narrower than `SPLIT_MIN_WIDTH`: an unfolded foldable, a tablet, or a
+ *   desktop window with Paseo's sidebar open. One pane at a time, full width, tabs in the header.
+ * - **wide**: everything wider, chat beside the board, laid out exactly as it always was.
  */
 import { createContext, useContext } from "react";
 
-export type LayoutTier = "phone" | "tablet" | "wide";
+export type LayoutTier = "phone" | "medium" | "wide";
 
-export const TABLET_MAX_WIDTH = 1040;
+/**
+ * The narrowest surface the chat-beside-board split reads well at, with the chat at its default 36%
+ * share: the chat needs about 480 pt for a line of prose and its composer's buttons, and the board
+ * three whole 280 pt columns (two 10 pt gaps and 12 pt padding each side make 884 pt, and the 9 pt
+ * resize handle sits in the board's share). 480 / 0.36 is 1334 and 893 / 0.64 is 1396, so 1400. A 1440 pt window with the
+ * sidebar closed stays split; with Paseo's 320 pt sidebar open it is 1120 pt and goes to one pane,
+ * where the split left the board one cut column.
+ */
+export const SPLIT_MIN_WIDTH = 1400;
 
 export function layoutTier(compact: boolean, surfaceWidth: number): LayoutTier {
   if (compact) return "phone";
-  // Before the first layout the width is 0: drawn wide, as before, rather than flashing the tablet layout.
-  if (surfaceWidth > 0 && surfaceWidth < TABLET_MAX_WIDTH) return "tablet";
+  // Before the first layout the width is 0: drawn wide, as before, rather than flashing one pane.
+  if (surfaceWidth > 0 && surfaceWidth < SPLIT_MIN_WIDTH) return "medium";
   return "wide";
 }
 
@@ -44,14 +51,14 @@ export interface ColumnFit {
   max: number;
 }
 
-export const TABLET_COLUMNS: ColumnFit = { pad: 10, gap: 10, foldedWidth: 40, min: 240, max: 340 };
+export const FITTED_COLUMNS: ColumnFit = { pad: 10, gap: 10, foldedWidth: 40, min: 240, max: 340 };
 
 /**
- * An open column's width on the tablet layout: as many columns as fit at `min` share the pane after the
+ * An open column's width on the medium layout: as many columns as fit at `min` share the pane after the
  * folded strips, so whole columns show and none is cut at the edge; the rest are a swipe away. Never
  * wider than `max`, never narrower than `min` unless the pane itself is.
  */
-export function fittedColumnWidth(pane: number, open: number, folded: number, fit: ColumnFit = TABLET_COLUMNS): number {
+export function fittedColumnWidth(pane: number, open: number, folded: number, fit: ColumnFit = FITTED_COLUMNS): number {
   const available = pane - 2 * fit.pad - folded * (fit.foldedWidth + fit.gap);
   if (open <= 0 || available <= 0) return fit.min;
   if (available < fit.min) return Math.floor(available);

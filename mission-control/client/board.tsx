@@ -31,7 +31,7 @@ import { SortableList } from "./sortable";
 import { tint } from "./ui";
 import { WATCHES_ICON, WatchList } from "./watches";
 import { FONT_SIZE } from "./type-scale";
-import { TABLET_COLUMNS, columnOffsets, fittedColumnWidth, nextOffset, useLayoutTier } from "./layout-tier";
+import { FITTED_COLUMNS, columnOffsets, fittedColumnWidth, nextOffset, useLayoutTier } from "./layout-tier";
 import { EdgeFade, useOverflowEdges } from "./edges";
 
 const COLUMN_WIDTH = 280;
@@ -72,10 +72,10 @@ export function Board(props: BoardProps) {
   const root = useRef<View>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   /**
-   * A tablet's pane holds two columns or so: they are fitted to it so none is cut at the edge, the row
+   * A medium layout's board is narrower than a wide one's row of columns: they are fitted to it so none is cut at the edge, the row
    * snaps to a column's start, and the ends that go on fade with a button that moves a column along.
    */
-  const fitted = useLayoutTier() === "tablet";
+  const fitted = useLayoutTier() === "medium";
   const overflow = useOverflowEdges();
 
   /** A press point in window coordinates, made the board's own: the menu is drawn inside the board. */
@@ -126,7 +126,7 @@ export function Board(props: BoardProps) {
     const { colors } = theme;
     return {
       board: { flex: 1, minHeight: 0 },
-      row: { flexGrow: 1, gap: TABLET_COLUMNS.gap, padding: compact || fitted ? TABLET_COLUMNS.pad : 12, alignItems: "stretch" as const },
+      row: { flexGrow: 1, gap: FITTED_COLUMNS.gap, padding: compact || fitted ? FITTED_COLUMNS.pad : 12, alignItems: "stretch" as const },
       stack: { gap: 10, padding: 10, paddingBottom: 24 },
       nobody: { padding: compact ? 10 : 12, color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       column: { borderRadius: 10, padding: 6, gap: 8 },
@@ -316,7 +316,7 @@ export function Board(props: BoardProps) {
   const foldedCount = shown.filter((id) => collapsed.includes(id)).length;
   const openWidth = fitted ? fittedColumnWidth(size.width, shown.length - foldedCount, foldedCount) : COLUMN_WIDTH;
   const widths = shown.map((id) => (collapsed.includes(id) ? COLLAPSED_WIDTH : openWidth));
-  const offsets = columnOffsets(widths, TABLET_COLUMNS);
+  const offsets = columnOffsets(widths, FITTED_COLUMNS);
   const snapping = fitted ? { snapToOffsets: offsets, decelerationRate: "fast" as const, ...overflow.scrollProps } : {};
   const row = (
     <ScrollView horizontal style={{ flex: 1 }} contentContainerStyle={styles.row} {...snapping}>
@@ -346,7 +346,7 @@ export function Board(props: BoardProps) {
       })}
     </ScrollView>
   );
-  // Only a tablet's row has the fades over it; a wide board's tree is left exactly as it was.
+  // Only a medium layout's row has the fades over it; a wide board's tree is left exactly as it was.
   const fittedRow = (
     <View style={{ flex: 1 }}>
       {row}
