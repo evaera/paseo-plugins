@@ -15,13 +15,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 
 import { steerCrew, type AgentSummary, type CrewReportSummary, type FleetCard } from "../shared/fleet";
 import { activityRows, type ActivityRow, type PlanStatus } from "./activity-rows";
 import { cardDebriefTarget, useBoardTasks } from "./board-tasks";
-import { CardSheet } from "./card";
+import { CardDecisionStrip, CardSheet } from "./card";
 import { DebriefSelfContext } from "./debrief-embed";
 import type { CoordinatorAsk } from "./card-answer";
 import type { DraftKind } from "./card-commands";
@@ -38,7 +38,7 @@ import { PermissionCard, usePendingRequests } from "./permission-card";
 import { TaskNotes } from "./task-notes";
 import { Chip, IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
-import { useLayoutTier } from "./layout-tier";
+import { TOUCH_TARGET, useLayoutTier } from "./layout-tier";
 import { useKeyboardOverlap } from "./keyboard";
 import { EdgeFade } from "./edges";
 import { GrowingSlot, useGrowingHeight } from "./growing-input";
@@ -51,6 +51,9 @@ const SIDE_BY_SIDE_WIDTH = 680;
 const CARD_COLUMN_WIDTH = 320;
 /** A phone's or a tablet's worker box grows to this many lines, then scrolls. */
 const WORKER_INPUT_MAX_LINES = 6;
+/** A phone's Details line: drawn this tall, and padded above and below to a full touch target. */
+const SLIM_FOLD_HEIGHT = 32;
+const SLIM_FOLD_SLOP = (TOUCH_TARGET - SLIM_FOLD_HEIGHT) / 2;
 /** A card with no worker has nothing beside it, so it is held to a readable width. */
 const ALONE_MAX_WIDTH = 640;
 /**
@@ -119,6 +122,13 @@ export function CardView({
   const foldable = touch && !sideBySide && agent !== null;
   const [unfolded, setUnfolded] = useState(detailsOpen);
   const folded = foldable && !unfolded;
+  /**
+   * A phone's stacked view: the bar and the worker's header are one row, Details a slim line under it, and
+   * what the card asks the user sits over the transcript, so the transcript starts as high as it can.
+   */
+  const slim = compact && foldable;
+  /** The worker's context use, reported up by the transcript, which reads the timeline it comes from. */
+  const [usage, setUsage] = useState<Usage>({ used: null, max: null });
   const root = useRef<View>(null);
   /** The worker's box sits at the view's foot, outside any scroll view, so the view lifts itself clear of the keyboard. */
   const keyboard = useKeyboardOverlap(root);
@@ -152,6 +162,18 @@ export function CardView({
         backgroundColor: colors.surface1,
       },
       foldText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
+      slimBar: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingLeft: 2, paddingRight: 6, paddingVertical: 2 },
+      slimTitle: { color: colors.foreground, fontSize: FONT_SIZE.body, fontWeight: "600" as const },
+      slimState: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4 },
+      slimBody: { flex: 1, minHeight: 0, paddingHorizontal: 10, paddingBottom: 10, gap: 8 },
+      slimFold: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        minHeight: SLIM_FOLD_HEIGHT,
+        paddingHorizontal: 4,
+      },
+      slimFacts: { flexShrink: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
       cardContent: { gap: 10, paddingBottom: 4 },
       cardAlone: { flex: 1 },
       alone: { gap: 10, width: "100%" as const, maxWidth: ALONE_MAX_WIDTH, paddingBottom: 12 },
@@ -186,7 +208,26 @@ export function CardView({
       </>
     );
 
-  const fold = foldable ? (
+  const fold = slim ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !folded }}
+      accessibilityLabel={folded ? "Show the card's details" : "Hide the card's details"}
+      style={styles.slimFold}
+      // Drawn slim; the touch area reaches the full target above and below it.
+      hitSlop={{ top: SLIM_FOLD_SLOP, bottom: SLIM_FOLD_SLOP }}
+      onPress={() => {
+        detailsOpen = folded;
+        setUnfolded(folded);
+      }}
+    >
+      <Icon name={folded ? "ChevronRight" : "ChevronDown"} size={14} color={theme.colors.foregroundMuted} />
+      <Text style={styles.foldText} numberOfLines={1}>
+        {folded ? (card === null ? "Details" : `Details · ${COLUMNS[card.column].title}`) : "Hide details"}
+      </Text>
+      {agent === null ? null : <WorkerFacts agent={agent} theme={theme} usage={usage} style={styles.slimFacts} />}
+    </Pressable>
+  ) : foldable ? (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ expanded: !folded }}
@@ -206,6 +247,22 @@ export function CardView({
 
   return (
     <View ref={root} style={[styles.screen, keyboard > 0 ? { paddingBottom: keyboard } : null]}>
+      {slim && agent !== null ? (
+        <View style={styles.slimBar}>
+          <IconButton icon="ChevronLeft" label="Crew" theme={theme} onPress={onBack} touch flat />
+          <WorkerAvatar agent={agent} theme={theme} size={28} column={card?.column} ground={theme.colors.surface0} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.slimTitle} numberOfLines={1}>
+              {card?.title ?? agent.title ?? "Card"}
+            </Text>
+            <SlimState agent={agent} report={card?.report ?? null} theme={theme} style={styles.slimState} />
+          </View>
+          {debriefTarget === null || tasks.debrief == null || tasks.canDebrief?.(debriefTarget.serverId) === false ? null : (
+            <IconButton icon="FileDiff" label="View diff" theme={theme} onPress={() => tasks.debrief?.(debriefTarget, "diff")} touch flat />
+          )}
+          {onOpen === null ? null : <IconButton icon="ExternalLink" label="Open in Paseo" theme={theme} onPress={onOpen} touch flat />}
+        </View>
+      ) : (
       <View style={styles.bar}>
         <IconButton icon="ChevronLeft" label="Crew" showLabel theme={theme} onPress={onBack} touch={touch} />
         <Text style={styles.title} numberOfLines={1}>
@@ -226,15 +283,17 @@ export function CardView({
           <IconButton icon="ExternalLink" label="Open in Paseo" showLabel={!touch && !compact} theme={theme} onPress={onOpen} touch={touch} />
         )}
       </View>
+      )}
       {/*
         One tree whether or not the card has a worker, so a worker starting or ending under an open card
         never remounts the sheet: a half-typed note, Relaunch or Wait survives it, and so does the focus.
       */}
       <View
-        style={[styles.body, sideBySide || agent === null ? styles.bodySide : null]}
+        style={[slim ? styles.slimBody : styles.body, sideBySide || agent === null ? styles.bodySide : null]}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
       >
         {fold}
+        {slim && folded && card !== null ? <CardDecisionStrip card={card} theme={theme} toCoordinator={toCoordinator} /> : null}
         {/* Hidden rather than unmounted, either side of the fold, so a half-typed note, answer or message survives it. */}
         <ScrollView
           style={[
@@ -263,6 +322,8 @@ export function CardView({
               onOpenFile={onOpenFile}
               onOpen={onOpen}
               fadeTop={touch}
+              header={!slim}
+              onUsage={slim ? setUsage : undefined}
             />
             </DebriefSelfContext.Provider>
             <WorkerComposer agent={agent} theme={theme} compact={compact} onSent={onChanged} grow={touch} />
@@ -270,6 +331,53 @@ export function CardView({
         )}
       </View>
     </View>
+  );
+}
+
+interface Usage {
+  used: number | null;
+  max: number | null;
+}
+
+/** The worker's state as the phone's bar draws it under the title: an icon and a word, in that state's colour. */
+function SlimState({
+  agent,
+  report,
+  theme,
+  style,
+}: {
+  agent: AgentSummary;
+  report: CrewReportSummary | null;
+  theme: PluginTheme;
+  style: object;
+}) {
+  const worked = workerState(agent, report);
+  const color = stateColor(theme, worked.tone);
+  return (
+    <View style={style}>
+      <Icon name={worked.icon} size={11} color={color} />
+      <Text style={{ color, fontSize: FONT_SIZE.caption, fontWeight: "500" }} numberOfLines={1}>
+        {worked.label}
+      </Text>
+    </View>
+  );
+}
+
+/** The model and how full its context is, on the phone's Details line, where the worker's header had them. */
+function WorkerFacts({ agent, theme, usage, style }: { agent: AgentSummary; theme: PluginTheme; usage: Usage; style: object }) {
+  const percent = contextPercent(usage.used, usage.max);
+  const model = modelName(agent) || null;
+  if (percent === null && model === null) return null;
+  return (
+    <Text style={style} numberOfLines={1}>
+      {model}
+      {model === null || percent === null ? null : "  ·  "}
+      {percent === null ? null : (
+        <Text style={{ color: percent >= 70 ? contextTone(theme, percent) : theme.colors.foregroundMuted, fontVariant: ["tabular-nums"] }}>
+          {`${Math.round(percent)}%`}
+        </Text>
+      )}
+    </Text>
   );
 }
 
@@ -580,6 +688,8 @@ function ActivityTranscript({
   onOpen,
   onOpenFile,
   fadeTop = false,
+  header = true,
+  onUsage,
 }: {
   /** The worker as the board last saw it, for the header; null draws none. */
   agent: AgentSummary | null;
@@ -600,6 +710,10 @@ function ActivityTranscript({
    * past rather than drawn under it. Phones and tablets, where the transcript is short.
    */
   fadeTop?: boolean;
+  /** Draws the worker's header over the transcript; a phone's card view folds it into its own bar. */
+  header?: boolean;
+  /** Told the worker's context use whenever it changes, for a bar that shows it outside the transcript. */
+  onUsage?: ((usage: Usage) => void) | undefined;
 }) {
   const toast = useToast();
   const timeline = useAgentTimeline(agentId, revision, TIMELINE_LIMIT, serverId);
@@ -614,6 +728,11 @@ function ActivityTranscript({
   /** Tool rows showing their detail, and prompts and reasoning shown whole, by row key. */
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const running = timeline.agent?.status === "running" || timeline.agent?.status === "initializing";
+  const usedTokens = timeline.agent?.lastUsage?.contextWindowUsedTokens ?? null;
+  const maxTokens = timeline.agent?.lastUsage?.contextWindowMaxTokens ?? null;
+  useEffect(() => {
+    onUsage?.({ used: usedTokens, max: maxTokens });
+  }, [onUsage, usedTokens, maxTokens]);
 
   const styles = useMemo(() => {
     const { colors } = theme;
@@ -806,7 +925,7 @@ function ActivityTranscript({
 
   return (
     <View style={{ flex: 1 }}>
-      {agent === null ? null : (
+      {agent === null || !header ? null : (
         <WorkerHeader
           agent={agent}
           theme={theme}

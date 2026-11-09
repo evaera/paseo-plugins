@@ -21,7 +21,7 @@ import { useMemo, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 
 import { exitCrew, interruptCrew, relaunchCrew, renameTask, type AgentSummary, type FleetCard } from "../shared/fleet";
-import { cardActions, type CoordinatorAsk } from "./card-answer";
+import { cardActions, cardDecision, type CoordinatorAsk } from "./card-answer";
 import {
   cardMenu,
   dependPrompt,
@@ -43,6 +43,11 @@ import type { DragHandle } from "./sortable";
 import { contextMenuProps } from "./web";
 import { IconButton, QuietButton, errorText, tint } from "./ui";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
+import { touchPadding } from "./layout-tier";
+
+/** The grip's icon and its padding, in points. */
+const GRIP_DRAWN = 18;
+const GRIP_SLOP = touchPadding(GRIP_DRAWN);
 
 type Draft = { kind: "relaunch" | "wait"; text: string } | { kind: "end" } | { kind: "drop" } | null;
 
@@ -114,6 +119,11 @@ function useCardStyles(theme: PluginTheme, compact: boolean, card: FleetCard) {
         backgroundColor: colors.surface1,
       },
       cornerButton: { paddingHorizontal: 2, paddingVertical: 2, borderRadius: 4 },
+      // Above the grip's touch area, which reaches under it, so a press on the drawn button is always the button's.
+      chatButton: { paddingHorizontal: 2, paddingVertical: 2, borderRadius: 4, zIndex: 2 },
+      // The grip is drawn GRIP_DRAWN across, like the button beside it; padding and a matching negative margin make
+      // its touch area TOUCH_TARGET square around that without moving or growing what is drawn.
+      gripHit: { padding: 2 + GRIP_SLOP, margin: -GRIP_SLOP, borderRadius: 4 },
       links: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 4, flexShrink: 1 },
       tags: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 4 },
       title: {
@@ -345,7 +355,7 @@ export function CrewCard({
             accessibilityLabel={`Talk to Mission Control about ${card.title}`}
             // Drawn small in the card's corner; a finger gets a full touch target around it.
             hitSlop={10}
-            style={styles.cornerButton}
+            style={styles.chatButton}
             onPress={onChat}
           >
             <Icon name="MessageCircle" size={14} color={theme.colors.foregroundMuted} />
@@ -362,7 +372,7 @@ export function CrewCard({
                 { name: "decrement", label: "Move up" },
               ]}
               onAccessibilityAction={(event) => drag.step(event.nativeEvent.actionName === "decrement" ? -1 : 1)}
-              style={styles.cornerButton}
+              style={styles.gripHit}
               {...drag.panHandlers}
             >
               <Icon name="GripVertical" size={14} color={theme.colors.foregroundMuted} />
@@ -611,6 +621,62 @@ export function CardSheet({
           </View>
         )}
       </View>
+    </View>
+  );
+}
+
+/**
+ * What a card asks the user, above a phone's transcript while the card's details are folded away: the
+ * hold, a few lines at most, and the buttons that answer it at full touch size, wrapping. The whole text
+ * and everything else stay in the details. Nothing when the card asks nothing.
+ */
+export function CardDecisionStrip({
+  card,
+  theme,
+  toCoordinator,
+}: {
+  card: FleetCard;
+  theme: PluginTheme;
+  toCoordinator: CoordinatorAsk | null;
+}) {
+  const decision = cardDecision(card, toCoordinator !== null);
+  if (decision === null) return null;
+  const { colors } = theme;
+  const tone = columnTone(theme, card.column);
+  return (
+    <View
+      style={{
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderWidth: 1,
+        borderColor: tint(tone, 0.45, colors.border),
+        borderRadius: 12,
+        backgroundColor: tint(tone, 0.08, colors.surface1),
+      }}
+    >
+      {decision.hold === null ? null : (
+        <Text style={{ color: colors.foreground, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) }} numberOfLines={3}>
+          <Text style={{ color: tone, fontWeight: "600" }}>Needs you: </Text>
+          {decision.hold}
+        </Text>
+      )}
+      {decision.actions.length === 0 ? null : (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {decision.actions.map((action, index) => (
+            <IconButton
+              key={`${index}:${action.label}`}
+              icon="Send"
+              label={action.label}
+              showLabel
+              touch
+              theme={theme}
+              disabled={toCoordinator?.sending ?? true}
+              onPress={() => toCoordinator?.send(action.prompt)}
+            />
+          ))}
+        </View>
+      )}
     </View>
   );
 }

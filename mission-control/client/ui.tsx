@@ -24,6 +24,7 @@ export function IconButton({
   disabled = false,
   showLabel = false,
   touch = false,
+  flat = false,
 }: {
   icon: string;
   label: string;
@@ -35,6 +36,8 @@ export function IconButton({
   showLabel?: boolean;
   /** At least `TOUCH_TARGET` square, for the layouts a finger drives. */
   touch?: boolean;
+  /** No border or fill, for a bar of icons where a box around each would crowd it. */
+  flat?: boolean;
 }) {
   const colors = theme.colors;
   const color =
@@ -55,10 +58,11 @@ export function IconButton({
         // A long label — a card action Mission Control named — wraps inside a narrow card instead of overflowing it.
         maxWidth: "100%" as const,
         ...(touch ? { minHeight: TOUCH_TARGET, minWidth: TOUCH_TARGET, justifyContent: "center" as const } : {}),
+        ...(flat ? { borderColor: "transparent", backgroundColor: "transparent" } : {}),
       },
       label: { color, fontSize: FONT_SIZE.small, fontWeight: "500" as const, flexShrink: 1 },
     }),
-    [colors, tone, disabled, showLabel, color, touch],
+    [colors, tone, disabled, showLabel, color, touch, flat],
   );
   return (
     <Pressable

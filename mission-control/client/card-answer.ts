@@ -28,3 +28,15 @@ export function isHeld(card: FleetCard): boolean {
 export function cardActions(card: FleetCard): readonly CardAction[] {
   return card.backlog?.actions ?? [];
 }
+
+/**
+ * What a card asks the user to decide, for a phone's card view to show above the transcript: the hold
+ * and the buttons that answer it. Null when the card asks nothing, so nothing is drawn. Buttons need
+ * Mission Control to send to; the hold is drawn without them.
+ */
+export function cardDecision(card: FleetCard, canSend: boolean): { hold: string | null; actions: readonly CardAction[] } | null {
+  const hold = card.backlog?.hold?.trim() || null;
+  const actions = canSend ? cardActions(card) : [];
+  if (hold === null && actions.length === 0) return null;
+  return { hold, actions };
+}

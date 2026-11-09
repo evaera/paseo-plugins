@@ -960,6 +960,19 @@ while scrolled, so a row cut by the header reads as scrolled past. Mission Contr
 same way. Buttons there are at least 44 pt (`touch` on `IconButton` and `Segmented`); small marks that
 cannot grow (a chip, the card's chat button, Send) get `hitSlop` instead.
 
+A phone's stacked card view goes further, so the transcript starts about 90 pt below the host's header
+rather than 220: the screen's own header row steps aside while a card is open on the Board tab (the
+card's bar has the way back), the card's bar and the worker's header are one row (back, face, title over
+the state, diff, open), and Details is a slim line, 32 pt drawn and padded to a 44 pt target, carrying the
+model and the context share the header used to. What the card asks the user, its hold and its
+`(actions: …)` buttons at full touch size (`CardDecisionStrip`, `cardDecision`), sits between Details and
+the transcript while Details is folded, so a decision never needs Details opened. A tablet keeps the
+bar, the boxed Details row and the worker's header.
+
+The board's drag grip is drawn 18 pt and touched 44 pt: padding and a matching negative margin
+(`touchPadding`), since the web renderer ignores `hitSlop` on the plain view the drag responder sits on.
+The chat button beside it is stacked above it, so where the two areas meet the drawn button wins.
+
 The host pads a surface's top, under its header, and nothing else: not the home indicator, not the sides
 in landscape, and not the keyboard. Paseo moves its own composer with `react-native-keyboard-controller`
 and `react-native-safe-area-context`, and neither is a module a plugin may import. So the screen does it
@@ -972,7 +985,9 @@ itself, with what `react-native` offers:
   already padded it; on Android nothing. A wide layout asks for no edges on the web, and the root is the
   same element in every layout, so crossing one does not remount the screen. **Nothing here can see a
   system overlay that is not reported as a safe-area inset**, such as a foldable's floating status
-  cluster; if iOS reports it, the root pads clear of it.
+  cluster; if iOS reports it, the root pads clear of it. Neither `@getpaseo/plugin` (through 0.15.3) nor
+  the host hands a plugin its insets; the web app sets `viewport-fit=cover`, so `env()` reports real
+  values in a phone's browser, and every inset reads 0 on a desktop.
 - **The keyboard.** `useKeyboardOverlap` (`client/keyboard.ts`) measures the chat pane, and a card's view,
   with `measureInWindow` (the space the keyboard's frame is reported in), and the view pads its bottom
   by the overlap. `KeyboardAvoidingView` is not used because it measures against its parent, which

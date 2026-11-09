@@ -773,7 +773,11 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     ];
     return frame(
       <>
-        {header}
+        {/*
+          An open card is a step down from the board with a bar of its own, back included, so on a phone it
+          takes the header's row too: the transcript under it gets the height. Back on the board, it returns.
+        */}
+        {shownTab === "board" && watching !== null ? null : header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
         <View style={{ flex: 1, minHeight: 0 }}>
           {shownTab === "chat" ? (

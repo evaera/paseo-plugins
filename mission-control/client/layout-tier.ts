@@ -108,3 +108,12 @@ export function twinText(text: string): string {
   if (text === "") return " ";
   return text.endsWith("\n") ? `${text} ` : text;
 }
+
+/**
+ * How far to pad a mark drawn `drawn` points across, on each side, with a matching negative margin, so
+ * its touch area reaches `target` without moving or growing what is drawn. `hitSlop` would say the same,
+ * but the web renderer ignores it on a plain view, and a drag handle's responder is one.
+ */
+export function touchPadding(drawn: number, target: number = TOUCH_TARGET): number {
+  return Math.max(0, Math.ceil((target - drawn) / 2));
+}

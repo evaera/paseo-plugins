@@ -8,6 +8,7 @@ import {
   layoutTier,
   nextOffset,
   overflowEdges,
+  touchPadding,
   twinText,
 } from "./layout-tier";
 
@@ -93,5 +94,21 @@ describe("a composer that grows with its text", () => {
     expect(twinText("")).toBe(" ");
     expect(twinText("one\n")).toBe("one\n ");
     expect(twinText("one")).toBe("one");
+  });
+});
+
+describe("a touch area around a small mark", () => {
+  it("pads each side to reach 44 points without moving the mark", () => {
+    expect(touchPadding(18)).toBe(13);
+    expect(18 + 2 * touchPadding(18)).toBe(44);
+  });
+
+  it("rounds up, so an odd gap still reaches the target", () => {
+    expect(touchPadding(17)).toBe(14);
+  });
+
+  it("adds nothing to a mark already the target's size or bigger", () => {
+    expect(touchPadding(44)).toBe(0);
+    expect(touchPadding(60)).toBe(0);
   });
 });
