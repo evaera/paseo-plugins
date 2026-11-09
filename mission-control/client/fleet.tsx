@@ -46,7 +46,7 @@ import { userMessage } from "./attachments";
 import { CardView } from "./card-view";
 import { chatAbout } from "./chat-about";
 import { subject, type DraftKind } from "./card-commands";
-import { agentStatusLabel, agentStatusTone, revealFilesPatch, shortPath } from "./format";
+import { BOARD_ORDER, agentStatusLabel, agentStatusTone, groupCards, revealFilesPatch, shortPath } from "./format";
 import { BoardTasksContext, cardForRef, type BoardTasks, type DebriefTarget } from "./board-tasks";
 import { debriefOpener } from "./debrief-bridge";
 import { CrewCard } from "./card";
@@ -59,7 +59,7 @@ import { ResizeHandle, clampShare } from "./resize-handle";
 import { RunOpenContext } from "./run-embed";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 import { FONT_SIZE } from "./type-scale";
-import { LayoutTierContext, TOUCH_TARGET, layoutTier } from "./layout-tier";
+import { LayoutTierContext, TOUCH_TARGET, besideBoardWidth, layoutTier } from "./layout-tier";
 import { boardAttention } from "./screen";
 import { SafeEdges } from "./edges";
 
@@ -74,6 +74,8 @@ let cachedRightPane: "board" | "files" = "board";
 let cachedWatching: string | null = null;
 /** The step the open card was opened on from its context menu, if any; kept with it. */
 let openedDraft: { draft: DraftKind; at: number } | null = null;
+/** The open card was opened from the board beside the chat, so its Crew button goes back to the chat. */
+let openedFromChat = false;
 
 /**
  * How the open card is found again on every poll: by its task and worker,
@@ -274,7 +276,10 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   }
 
   function setWatching(next: string | null): void {
-    if (next === null) openedDraft = null;
+    if (next === null) {
+      openedDraft = null;
+      openedFromChat = false;
+    }
     cachedWatching = next;
     setWatchingState(next);
   }
@@ -299,6 +304,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       meta: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       banners: { paddingHorizontal: compact ? 12 : 16, paddingTop: 8, gap: 6 },
       split: { flex: 1, minHeight: 0, flexDirection: "row" as const },
+      besideChat: { borderRightWidth: 1, borderRightColor: colors.border },
       rail: {
         width: touch ? TOUCH_TARGET + 8 : 40,
         alignItems: "center" as const,
@@ -752,6 +758,20 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     );
   }
 
+  const groups = groupCards(data.cards);
+  const occupied = BOARD_ORDER.filter((id) => (groups.get(id)?.length ?? 0) > 0);
+  const foldedColumns = occupied.filter((id) => values.collapsedColumns.includes(id)).length;
+  /** The Coordinator tab's board beside the chat on a medium layout wide enough for one; 0 for none. */
+  const besideWidth = besideBoardWidth(tier, width, occupied.length - foldedColumns, foldedColumns);
+  const beside = besideWidth > 0 && shownTab === "chat";
+
+  /** A card opened from the board beside the chat takes the full width, as the Board tab's do. */
+  function expandFromChat(): void {
+    if (!beside) return;
+    openedFromChat = true;
+    setTab("board");
+  }
+
   const board = (
     <Board
       cards={data.cards}
@@ -765,6 +785,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       onOpen={(card, draft) => {
         openedDraft = draft === undefined ? null : { draft, at: Date.now() };
         setWatching(openedRef(card));
+        expandFromChat();
       }}
       onChat={chatAboutCard}
       onChanged={refresh}
@@ -790,6 +811,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     open: (card) => {
       openedDraft = null;
       setWatching(openedRef(card));
+      expandFromChat();
     },
     debrief: navigation === undefined ? null : openDebrief,
     canDebrief: (serverId) => serverId === null || debriefOpener(serverId) !== null,
@@ -832,7 +854,11 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
         card={opened}
         theme={theme}
         compact={compact}
-        onBack={() => setWatching(null)}
+        onBack={() => {
+          const backToChat = openedFromChat;
+          setWatching(null);
+          if (backToChat) setTab("chat");
+        }}
         onOpen={
           navigation === undefined || openedAgent === null
             ? null
@@ -859,14 +885,22 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
         */}
         {compact && shownTab === "board" && watching !== null ? null : header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
-        <View style={{ flex: 1, minHeight: 0 }}>
-          {shownTab === "chat" ? (
-            chat
-          ) : shownTab === "board" ? (
-            crew
-          ) : (
-            <FilesView theme={theme} compact={compact} request={filesRequest} />
-          )}
+        {/* The pane keeps its place whether or not the board is beside it, so the chat is not remounted. */}
+        <View style={styles.split}>
+          <View style={[{ flex: 1, minWidth: 0 }, beside ? styles.besideChat : null]}>
+            {shownTab === "chat" ? (
+              chat
+            ) : shownTab === "board" ? (
+              crew
+            ) : (
+              <FilesView theme={theme} compact={compact} request={filesRequest} />
+            )}
+          </View>
+          {beside ? (
+            <View style={{ width: besideWidth }}>
+              <BoardTasksContext.Provider value={boardTasks}>{board}</BoardTasksContext.Provider>
+            </View>
+          ) : null}
         </View>
         {compact ? (
           <View style={styles.tabs} accessibilityRole="tablist">

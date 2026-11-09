@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BESIDE_COLUMN_WIDTH,
+  BESIDE_MIN_WIDTH,
+  CHAT_MIN_WIDTH,
   FITTED_COLUMNS,
+  besideBoardWidth,
   columnOffsets,
   fittedColumnWidth,
   growingHeight,
@@ -49,6 +53,58 @@ describe("the layout tier", () => {
 
   it("draws wide until the surface has been measured", () => {
     expect(layoutTier(false, 0)).toBe("wide");
+  });
+});
+
+describe("the board beside the chat on a medium layout", () => {
+  const columns = (pane: number, folded = 0) =>
+    Math.floor((pane - 2 * FITTED_COLUMNS.pad - folded * (FITTED_COLUMNS.foldedWidth + FITTED_COLUMNS.gap) + FITTED_COLUMNS.gap) / (BESIDE_COLUMN_WIDTH + FITTED_COLUMNS.gap));
+
+  it("puts the threshold at a readable chat plus one whole column and its padding", () => {
+    expect(BESIDE_MIN_WIDTH).toBe(CHAT_MIN_WIDTH + BESIDE_COLUMN_WIDTH + 2 * FITTED_COLUMNS.pad);
+    expect(BESIDE_MIN_WIDTH).toBe(780);
+    expect(besideBoardWidth("medium", BESIDE_MIN_WIDTH, 4, 0)).toBe(300);
+    expect(besideBoardWidth("medium", BESIDE_MIN_WIDTH - 1, 4, 0)).toBe(0);
+  });
+
+  it("gives an unfolded foldable one column and the chat the rest", () => {
+    const board = besideBoardWidth("medium", 951, 4, 0);
+    expect(columns(board)).toBe(1);
+    expect(951 - board).toBeGreaterThanOrEqual(CHAT_MIN_WIDTH);
+  });
+
+  it("fits as many whole columns as leave the chat readable on a tablet or a desktop with the sidebar open", () => {
+    expect(columns(besideBoardWidth("medium", 1024, 4, 0))).toBe(1);
+    expect(columns(besideBoardWidth("medium", 1180, 4, 0))).toBe(2);
+    expect(columns(besideBoardWidth("medium", 1440 - 320, 4, 0))).toBe(2);
+    expect(columns(besideBoardWidth("medium", 1366, 4, 0))).toBe(3);
+    for (const width of [951, 1024, 1180, 1366, SPLIT_MIN_WIDTH - 1]) {
+      expect(width - besideBoardWidth("medium", width, 8, 0)).toBeGreaterThanOrEqual(CHAT_MIN_WIDTH);
+    }
+  });
+
+  it("comes out as whole columns at the board's own fitted width", () => {
+    for (const width of [951, 1180, 1366]) {
+      const board = besideBoardWidth("medium", width, 4, 0);
+      expect(fittedColumnWidth(board, 4, 0)).toBe(BESIDE_COLUMN_WIDTH);
+    }
+    const withStrip = besideBoardWidth("medium", 1180, 4, 1);
+    expect(fittedColumnWidth(withStrip, 4, 1)).toBe(BESIDE_COLUMN_WIDTH);
+  });
+
+  it("never draws more columns than are open, and keeps one for an empty board", () => {
+    expect(besideBoardWidth("medium", 1366, 1, 0)).toBe(300);
+    expect(besideBoardWidth("medium", 1366, 0, 0)).toBe(300);
+  });
+
+  it("keeps one whole column when folded strips leave less room", () => {
+    const board = besideBoardWidth("medium", BESIDE_MIN_WIDTH, 2, 2);
+    expect(fittedColumnWidth(board, 2, 2)).toBe(BESIDE_COLUMN_WIDTH);
+  });
+
+  it("is only for the medium layout", () => {
+    expect(besideBoardWidth("phone", 951, 4, 0)).toBe(0);
+    expect(besideBoardWidth("wide", 1600, 4, 0)).toBe(0);
   });
 });
 

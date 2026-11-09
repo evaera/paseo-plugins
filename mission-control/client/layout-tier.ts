@@ -8,7 +8,8 @@
  *
  * - **phone**: the host says compact. One pane at a time, tabs at the foot.
  * - **medium**: not compact, but narrower than `SPLIT_MIN_WIDTH`: an unfolded foldable, a tablet, or a
- *   desktop window with Paseo's sidebar open. One pane at a time, full width, tabs in the header.
+ *   desktop window with Paseo's sidebar open. One pane at a time, full width, tabs in the header; from
+ *   `BESIDE_MIN_WIDTH` up, the Coordinator tab keeps whole board columns beside the chat.
  * - **wide**: everything wider, chat beside the board, laid out exactly as it always was.
  */
 import { createContext, useContext } from "react";
@@ -52,6 +53,44 @@ export interface ColumnFit {
 }
 
 export const FITTED_COLUMNS: ColumnFit = { pad: 10, gap: 10, foldedWidth: 40, min: 240, max: 340 };
+
+/** The chat's narrowest readable width: a line of prose and its composer's buttons. */
+export const CHAT_MIN_WIDTH = 480;
+
+/** A column of the board drawn beside the chat on the medium layout, the wide board's own column width. */
+export const BESIDE_COLUMN_WIDTH = 280;
+
+/** The board pane beside the chat for `columns` whole open columns and `folded` folded strips. */
+function besideWidth(columns: number, folded: number, fit: ColumnFit): number {
+  return 2 * fit.pad + folded * (fit.foldedWidth + fit.gap) + columns * BESIDE_COLUMN_WIDTH + (columns - 1) * fit.gap;
+}
+
+/**
+ * The narrowest medium surface that keeps the Coordinator tab's board beside the chat: a readable chat
+ * and one whole column with the row's padding, 480 + 300 = 780. Below it the chat has the tab to itself.
+ * An unfolded foldable (about 951 pt) and every tablet clear it.
+ */
+export const BESIDE_MIN_WIDTH = CHAT_MIN_WIDTH + besideWidth(1, 0, FITTED_COLUMNS);
+
+/**
+ * How wide the board beside the chat is on a medium layout, or 0 when there is none: as many whole
+ * columns as leave the chat its readable minimum, at least one and no more than there are open
+ * columns, with the folded strips' room added, so the board's fitted columns come out whole. The chat
+ * takes the rest. A strip of folded columns may squeeze the chat under its minimum rather than cut
+ * the one column the board always shows.
+ */
+export function besideBoardWidth(
+  tier: LayoutTier,
+  surfaceWidth: number,
+  open: number,
+  folded: number,
+  fit: ColumnFit = FITTED_COLUMNS,
+): number {
+  if (tier !== "medium" || surfaceWidth < BESIDE_MIN_WIDTH) return 0;
+  const room = surfaceWidth - CHAT_MIN_WIDTH - besideWidth(0, folded, fit) + fit.gap;
+  const fits = Math.floor(room / (BESIDE_COLUMN_WIDTH + fit.gap));
+  return besideWidth(Math.max(1, Math.min(Math.max(1, open), fits)), folded, fit);
+}
 
 /**
  * An open column's width on the medium layout: as many columns as fit at `min` share the pane after the
