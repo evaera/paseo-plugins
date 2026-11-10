@@ -8,8 +8,8 @@
  * The exports are the pointer tracking behind the chat pane's resize drag —
  * copied from `github-board/client/web.ts`, there is no workspace root to share
  * it from — and a card's drag within its column, the chat's file picker,
- * paste and drop, whether the window has the focus, whether the primary pointer is a finger, copying a run embed's command, and holding an
- * image back until it scrolls near the view.
+ * paste and drop, whether the window has the focus, whether the primary pointer is a finger, copying a run embed's command, holding an
+ * image back until it scrolls near the view, and the lightbox's wheel, keys and remembered focus.
  */
 import { Platform } from "react-native";
 
@@ -429,4 +429,79 @@ export function whenNearView(node: unknown, onNear: () => void): () => void {
   );
   observer.observe(node);
   return () => observer.disconnect();
+}
+
+/** One wheel event over a view, its point in the window's coordinates. */
+export interface WheelInput {
+  x: number;
+  y: number;
+  deltaY: number;
+  /** 0 pixels, 1 lines, 2 pages, as the DOM reports it. */
+  deltaMode: number;
+  /** Ctrl or Cmd held: how a trackpad pinch arrives, and the usual modifier for zooming with a wheel. */
+  pinch: boolean;
+}
+
+/**
+ * Every wheel event over `node` (a view's element), taken from the browser: the page neither scrolls
+ * nor zooms under it, which is why the listener is not passive. Native has no wheel and gets a no-op.
+ */
+export function takeWheel(node: unknown, onWheel: (input: WheelInput) => void): () => void {
+  if (Platform.OS !== "web" || typeof node !== "object" || node === null) return () => {};
+  const add = Reflect.get(node, "addEventListener") as ((type: string, listener: (event: unknown) => void, options?: object) => void) | undefined;
+  const remove = Reflect.get(node, "removeEventListener") as ((type: string, listener: (event: unknown) => void) => void) | undefined;
+  if (typeof add !== "function" || typeof remove !== "function") return () => {};
+  const listener = (event: unknown) => {
+    if (typeof event !== "object" || event === null) return;
+    const read = (name: string) => Reflect.get(event, name) as unknown;
+    const prevent = read("preventDefault");
+    if (typeof prevent === "function") prevent.call(event);
+    const x = read("clientX");
+    const y = read("clientY");
+    const deltaY = read("deltaY");
+    if (typeof x !== "number" || typeof y !== "number" || typeof deltaY !== "number") return;
+    const deltaMode = read("deltaMode");
+    onWheel({ x, y, deltaY, deltaMode: typeof deltaMode === "number" ? deltaMode : 0, pinch: read("ctrlKey") === true || read("metaKey") === true });
+  };
+  add.call(node, "wheel", listener, { passive: false });
+  return () => remove.call(node, "wheel", listener);
+}
+
+/**
+ * Key presses for something drawn over the whole app, heard before anything under it: `onKey` answers
+ * whether the key was its own, and one that was goes no further. A key with Ctrl, Cmd or Alt held is
+ * left to the app and the browser. Native has no keyboard to hear this way and gets a no-op.
+ */
+export function takeKeys(onKey: (key: string) => boolean): () => void {
+  if (Platform.OS !== "web") return () => {};
+  const document = (globalThis as { document?: { addEventListener?: (type: string, listener: (event: unknown) => void, capture?: boolean) => void; removeEventListener?: (type: string, listener: (event: unknown) => void, capture?: boolean) => void } }).document;
+  if (typeof document?.addEventListener !== "function" || typeof document.removeEventListener !== "function") return () => {};
+  const listener = (event: unknown) => {
+    if (typeof event !== "object" || event === null) return;
+    const read = (name: string) => Reflect.get(event, name) as unknown;
+    if (read("ctrlKey") === true || read("metaKey") === true || read("altKey") === true) return;
+    const key = read("key");
+    if (typeof key !== "string" || !onKey(key)) return;
+    for (const name of ["preventDefault", "stopPropagation"]) {
+      const method = read(name);
+      if (typeof method === "function") method.call(event);
+    }
+  };
+  document.addEventListener("keydown", listener, true);
+  return () => document.removeEventListener?.("keydown", listener, true);
+}
+
+/**
+ * Notes what has the keyboard's focus now and answers with the way to give it back, for something
+ * that takes the focus while it is open. Native moves the focus itself and gets a no-op.
+ */
+export function rememberFocus(): () => void {
+  if (Platform.OS !== "web") return () => {};
+  const document = (globalThis as { document?: { activeElement?: unknown; contains?: (node: unknown) => boolean } }).document;
+  const focused = document?.activeElement;
+  return () => {
+    if (typeof focused !== "object" || focused === null || document?.contains?.(focused) !== true) return;
+    const focus = Reflect.get(focused, "focus") as unknown;
+    if (typeof focus === "function") focus.call(focused);
+  };
 }

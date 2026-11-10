@@ -6,18 +6,20 @@
  * A local image is fetched only once it scrolls near the view (`whenNearView`), two at a time
  * across the plugin, and kept in the query cache for five minutes, so a chat of screenshots neither
  * fetches every one on mount nor fetches one again on every remount. Pressing an image opens it
- * full size in a host `Modal`.
+ * in the lightbox (`./lightbox`), where a gallery's arrows step through its images.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
-import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
+import { useRpc } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Image, Pressable, Text, View, useWindowDimensions } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 
 import { readImage } from "../shared/files";
 import { errorText } from "./format";
 import { classifyImage, fitImage, imageName, refusalText } from "./image-source";
+import { Lightbox, lightboxJustClosed } from "./lightbox";
+import { stepIndex } from "./lightbox-zoom";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
 import { whenNearView } from "./web";
 
@@ -140,52 +142,80 @@ function caption(alt: string): string | null {
   return trimmed === "" || /^(image|screenshot|img)$/i.test(trimmed) ? null : trimmed;
 }
 
-function FullSize({
-  theme,
+/** The image the lightbox is on, resolved the way the chat drew it: a local one comes out of the query cache. */
+function OpenedImage({
   image,
-  uri,
-  natural,
-  remote,
+  localFiles,
+  onClose,
+  onPrevious,
+  onNext,
+}: {
+  image: ImageRef;
+  localFiles: boolean;
+  onClose: () => void;
+  onPrevious: (() => void) | undefined;
+  onNext: (() => void) | undefined;
+}) {
+  const source = useMemo(() => classifyImage(image.src), [image.src]);
+  const local = source.kind === "local" && localFiles;
+  const loaded = useLocalImage(image.src, local);
+  const remote = useRemoteSize(source.kind === "remote" ? source.uri : null);
+
+  let uri: string | null = null;
+  let problem: string | null = null;
+  let natural: { width: number | null; height: number | null } = { width: null, height: null };
+  if (source.kind === "invalid") problem = refusalText("invalid", image.src, null);
+  else if (source.kind === "local" && !localFiles) problem = refusalText("other-host", image.src, null);
+  else if (source.kind === "remote") {
+    if (remote.failed) problem = refusalText("failed", image.src, null);
+    else {
+      uri = source.uri;
+      natural = remote;
+    }
+  } else if (loaded.state === "refused") problem = loaded.text;
+  else if (loaded.state === "ok") {
+    uri = loaded.uri;
+    natural = loaded;
+  }
+  const size = natural.width !== null && natural.height !== null && natural.width > 0 && natural.height > 0 ? { width: natural.width, height: natural.height } : null;
+  return (
+    <Lightbox
+      image={{ uri, size, label: image.alt.trim() === "" ? imageName(image.src) : image.alt, caption: caption(image.alt), problem }}
+      onClose={onClose}
+      onPrevious={onPrevious}
+      onNext={onNext}
+    />
+  );
+}
+
+/** The lightbox over a group of images, on the one at `index`; the arrows step through the group. */
+function GroupLightbox({
+  images,
+  index,
+  localFiles,
+  onIndex,
   onClose,
 }: {
-  theme: PluginTheme;
-  image: ImageRef;
-  uri: string;
-  natural: { width: number | null; height: number | null };
-  remote: boolean;
+  images: readonly ImageRef[];
+  index: number;
+  localFiles: boolean;
+  onIndex: (index: number) => void;
   onClose: () => void;
 }) {
-  const window = useWindowDimensions();
-  const toast = useToast();
-  const [width, setWidth] = useState(0);
-  const fitted = fitImage(natural, width, Math.max(200, window.height * 0.72));
-  const title = caption(image.alt) ?? imageName(image.src);
+  const image = images[index];
+  if (image === undefined) return null;
+  const previous = stepIndex(index, -1, images.length);
+  const next = stepIndex(index, 1, images.length);
   return (
-    <Modal title={title} open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <Modal.Content contentContainerStyle={{ gap: 12 }}>
-        <View style={{ alignItems: "center" }} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
-          {width === 0 ? null : (
-            <Image
-              source={{ uri }}
-              accessibilityLabel={image.alt || imageName(image.src)}
-              resizeMode="contain"
-              style={{ width: fitted.width, height: fitted.height, borderRadius: 6 }}
-            />
-          )}
-        </View>
-        <Text selectable style={{ color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.caption }}>
-          {remote ? image.src : `${image.src}${natural.width === null ? "" : ` · ${natural.width}×${natural.height ?? "?"}`}`}
-        </Text>
-        {remote && /^https?:/i.test(image.src) ? (
-          <Pressable
-            accessibilityRole="link"
-            onPress={() => void openExternalUrl(image.src).catch((caught: unknown) => toast.error(errorText(caught)))}
-          >
-            <Text style={{ color: theme.colors.accent, fontSize: FONT_SIZE.small }}>Open in the browser</Text>
-          </Pressable>
-        ) : null}
-      </Modal.Content>
-    </Modal>
+    <OpenedImage
+      // Keyed by its place, so a neighbour opens at fit rather than at the last one's zoom.
+      key={`${index}:${image.src}`}
+      image={image}
+      localFiles={localFiles}
+      onClose={onClose}
+      onPrevious={previous === null ? undefined : () => onIndex(previous)}
+      onNext={next === null ? undefined : () => onIndex(next)}
+    />
   );
 }
 
@@ -205,11 +235,32 @@ export function MarkdownImage({
   maxHeight: number;
   localFiles?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <InlineImage image={image} theme={theme} maxHeight={maxHeight} localFiles={localFiles} onOpen={() => setOpen(true)} />
+      {open ? <GroupLightbox images={[image]} index={0} localFiles={localFiles} onIndex={() => {}} onClose={() => setOpen(false)} /> : null}
+    </>
+  );
+}
+
+function InlineImage({
+  image,
+  theme,
+  maxHeight,
+  localFiles,
+  onOpen,
+}: {
+  image: ImageRef;
+  theme: PluginTheme;
+  maxHeight: number;
+  localFiles: boolean;
+  onOpen: () => void;
+}) {
   const source = useMemo(() => classifyImage(image.src), [image.src]);
   const frame = useRef<View>(null);
   const [width, setWidth] = useState(0);
   const [near, setNear] = useState(() => seenSources.has(image.src));
-  const [open, setOpen] = useState(false);
   const [broken, setBroken] = useState(false);
   const local = source.kind === "local" && localFiles;
 
@@ -244,8 +295,10 @@ export function MarkdownImage({
         <Pressable
           accessibilityRole="imagebutton"
           accessibilityLabel={image.alt.trim() === "" ? imageName(image.src) : image.alt}
-          accessibilityHint="Opens the image full size"
-          onPress={() => setOpen(true)}
+          accessibilityHint="Opens the image in a viewer"
+          onPress={() => {
+            if (!lightboxJustClosed()) onOpen();
+          }}
           style={{ width: fitted.width }}
         >
           <Image
@@ -272,16 +325,6 @@ export function MarkdownImage({
           {text}
         </Text>
       )}
-      {open && uri !== null ? (
-        <FullSize
-          theme={theme}
-          image={image}
-          uri={uri}
-          natural={natural}
-          remote={source.kind === "remote"}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
     </View>
   );
 }
@@ -304,17 +347,26 @@ export function ImageGallery({
   tileMin?: number;
   localFiles?: boolean;
 }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const lightbox =
+    open === null ? null : <GroupLightbox images={images} index={open} localFiles={localFiles} onIndex={setOpen} onClose={() => setOpen(null)} />;
   if (images.length === 1) {
     const only = images[0];
-    return only === undefined ? null : <MarkdownImage image={only} theme={theme} maxHeight={maxHeight} localFiles={localFiles} />;
+    return only === undefined ? null : (
+      <>
+        <InlineImage image={only} theme={theme} maxHeight={maxHeight} localFiles={localFiles} onOpen={() => setOpen(0)} />
+        {lightbox}
+      </>
+    );
   }
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
       {images.map((image, index) => (
         <View key={`${index}:${image.src}`} style={{ flexGrow: 1, flexBasis: tileMin, minWidth: 0 }}>
-          <MarkdownImage image={image} theme={theme} maxHeight={Math.round(maxHeight * 0.66)} localFiles={localFiles} />
+          <InlineImage image={image} theme={theme} maxHeight={Math.round(maxHeight * 0.66)} localFiles={localFiles} onOpen={() => setOpen(index)} />
         </View>
       ))}
+      {lightbox}
     </View>
   );
 }

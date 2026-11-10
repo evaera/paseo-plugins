@@ -89,7 +89,8 @@ compile time. This file covers only what is specific to `mission-control`.
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
 | `client/settings-screen.tsx`  | Settings › Plugins › Mission Control.                                                            |
 | `client/markdown.tsx`         | The renderer for Mission Control's replies, begun as a trimmed copy of `github-board`'s; a block's images go in a gallery under its text. |
-| `client/markdown-image.tsx`, `image-source.ts` | A Markdown image drawn: fetched near the view, two at a time, fitted, a placeholder for a refusal, full size in a `Modal`. The source and size rules are pure. |
+| `client/markdown-image.tsx`, `image-source.ts` | A Markdown image drawn: fetched near the view, two at a time, fitted, a placeholder for a refusal, opened in the lightbox. The source and size rules are pure. |
+| `client/lightbox.tsx`, `lightbox-zoom.ts` | An opened image: only the image over a curtain that dims the whole app, zoomed and panned. The zoom, pan, tap and key rules are pure. |
 | `shared/local-path.ts`        | `file:` URLs, Windows and relative paths read the same way by both halves; the image extensions. Pure. |
 | `server/local-files.ts`, `image-header.ts` | What the app may be sent: home and project roots only, an image's bytes and type, revealing a project file. |
 | `client/use-file-links.ts`    | The `mission-control.files.find` query a chat, a worker's transcript and the Files preview share. |
@@ -804,6 +805,33 @@ bold is a link; nothing crosses a newline. `javascript:`, `data:` and `vbscript:
 (`client/markdown.tsx`) draws a block's text and then its images as one `ImageGallery`: one image at the
 column's width (at most 360 points tall in the chat), two or more as wrapping tiles. A table cell's tiles are
 smaller. Alt text is the caption and the accessibility label, except Paseo's own `Image`.
+
+**A pressed image opens in a lightbox over the whole app** (`client/lightbox.tsx`): only the image, on a dark
+curtain, with a close button in the top right, the alt text small at the foot, and arrows when its gallery has
+more than one. It is React Native's own `Modal`, transparent, which is what Paseo's attachment viewer is
+(`attachment-lightbox.tsx` in Paseo): the web renderer portals it to the document's body and native presents it
+over the window, so it reaches past the plugin's surface. The host's `Modal` is a boxed dialog with a title
+bar, and the plugin API has no image viewer or overlay of its own (through 0.13.2). Paseo's zooming is
+`react-native-gesture-handler` and `react-native-reanimated`, neither a host module, so the gestures here are
+a `PanResponder` (one finger or the mouse pans, two fingers pinch) and, on the web, a wheel listener
+(`takeWheel`: a trackpad pinch is a wheel with Ctrl held) and a key listener in the capture phase (`takeKeys`:
+Escape, the arrows, `+`, `-`, `0`). `client/lightbox-zoom.ts` holds the rules: fit never goes above real size,
+zoom runs from fit to five times real size toward the pointer, a pan stops with the image's edge at the
+viewport's, the second of two quick taps on the image toggles fit and real size, and a tap outside the image
+closes. Three things nothing else gives:
+
+- **The handlers' transform is set at once, not at the next render.** Several wheel events arrive between two
+  renders, and each read the same stale transform, so twelve pinch events zoomed as one.
+- **Focus is given back by hand** (`rememberFocus`). The web renderer's modal notes the focused element only
+  after its own trap has moved the focus inside, so its restore never finds the opener.
+- **A touch that closes is followed by a click on whatever the curtain covered**, often the image that opened
+  it. The release calls `preventDefault`, and an inline image ignores a press within 400 ms of a close
+  (`lightboxJustClosed`).
+
+The curtain and the marks on it are fixed colours, the second exception to the root AGENTS.md's colour rule
+after the faces: the curtain is dark in a light theme too, and no token says that. Checked through
+react-native-web in Chromium, with synthetic wheel, mouse and touch events, at 1280 and 500 points wide; not
+looked at inside Paseo, nor on iOS or Android, where the pinch and the safe area are React Native's alone.
 
 **Local images come from the daemon, never from a path the app opens.** `mission-control.files.image` resolves
 the source exactly as `files.find` does (`resolveLocalFile`): a relative path is the home's; an absolute one,

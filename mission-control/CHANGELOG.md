@@ -16,7 +16,10 @@ Notable changes to `mission-control`. The format follows
   something out, beside the same command in plain text.
 - **Images in replies.** A Markdown image, `![caption](path)`, in Mission Control's chat or a worker's
   transcript is drawn inline, fitted to the column, with its caption; several on consecutive lines sit
-  side by side, and a press opens one full size. It can be a file in Mission Control's home (relative or
+  side by side. A press opens one in a lightbox over the whole app, as Paseo's own viewer and Discord's
+  do: only the image on a dark curtain, fitted to the window, with a close button in the top right. The
+  wheel or a pinch zooms toward the pointer, a drag pans, a double click or tap goes between fit and real
+  size, the arrows step through a message's images, and Escape or a press on the curtain closes. It can be a file in Mission Control's home (relative or
   absolute), a file inside a registered Paseo project (`C:\…`, `C:/…` or `file:///…`), or an `https://`
   image. The plugin sends local files only from the home and the project roots, checked through `..`
   and symlinks, as PNG, JPEG, GIF or WebP up to 8 MB, fetched as they scroll into view. A missing,
