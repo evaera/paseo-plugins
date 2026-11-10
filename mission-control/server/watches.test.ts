@@ -497,8 +497,11 @@ describe("runWatchScript", () => {
   it("kills the whole group after the grace period, even a child that ignores SIGTERM and let go of the pipes", async () => {
     const dir = await tempDir();
     const pidFile = join(dir, "child.pid");
+    // The loop is bounded: where the kill cannot reach the child (taskkill /T misses an MSYS shell's
+    // forks on Windows) a survivor must end on its own. An orphan that loops forever starts one console
+    // program a second with no console to inherit, and Windows shows those as terminal windows.
     const path = await real(
-      `sh -c 'trap "" TERM; echo $$ > "${pidFile}"; while :; do sleep 1; done' >/dev/null 2>&1 </dev/null &\nsleep 30`,
+      `sh -c 'trap "" TERM; echo $$ > "${pidFile}"; i=0; while [ $i -lt 20 ]; do sleep 1; i=$((i+1)); done' >/dev/null 2>&1 </dev/null &\nsleep 30`,
     );
     const result = await runWatchScript(path, { ...options, timeoutMs: 300, killGraceMs: 300 });
     expect(result.timedOut).toBe(true);
