@@ -16,6 +16,7 @@ import { registerCrewSeen } from "./server/crew-seen";
 import { type CrewLocations, ReportCache, loadFleet, namedCrew, readAgentTools, resolveCoordinator } from "./server/fleet";
 import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
 import { findLinkedFiles, readLocalImage, revealLocalFile } from "./server/local-files";
+import { chatImageSources } from "./server/chat-images";
 import { CHARTER_FILE, NEW_CHARTER_FILE, acknowledgeCharter, writeNewCharter } from "./server/charter-file";
 import { isHomeReady, prepareHome, readBacklog, removeSuggestion } from "./server/home";
 import { writeBoardOrder } from "./server/board-order";
@@ -41,6 +42,7 @@ import {
   acknowledgeCharter as acknowledgeCharterRpc,
   adoptCoordinator as adoptCoordinatorRpc,
   askCoordinator as askCoordinatorRpc,
+  chatImages as chatImagesRpc,
   askCoordinatorCommand as askCoordinatorCommandRpc,
   compactCoordinator as compactCoordinatorRpc,
   compareCharter as compareCharterRpc,
@@ -121,6 +123,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(compactCoordinatorRpc, async (_input, { paseo }) => ({ agentId: await compactCoordinator(paseo) }));
   server.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
   server.handle(askCoordinatorRpc, async (message, { paseo }) => ({ agentId: await askCoordinator(paseo, message) }));
+  server.handle(chatImagesRpc, async ({ messageId }) => ({ sources: await chatImageSources(await home(), messageId) }));
   server.handle(askCoordinatorCommandRpc, async ({ command, args }, { paseo }) => ({
     agentId: await askCoordinator(paseo, { text: await commandText(command, args) }),
   }));

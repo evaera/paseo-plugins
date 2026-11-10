@@ -56,9 +56,11 @@ const diffs = new Map<string, { stamp: string; at: number; diff: { additions: nu
 const DIFF_TTL_MS = 60_000;
 
 /**
- * What a worker's workspace has changed, or null when nothing has (or Paseo would not say). `paseo` is
- * the worker's own host; `serverId` is null for this Mac, whose Debrief files give the badges. `stamp`
- * is the worker's `updatedAt`, so a quiet worker's workspace is asked about once a minute, not every poll.
+ * What Debrief can open for a worker's workspace, or null for an id that is not one. A workspace with
+ * no diff against its base branch still gets one, with zero sizes: a worker that commits straight to
+ * the base branch has nothing there, and Debrief compares other ranges too. `paseo` is the worker's
+ * own host; `serverId` is null for this Mac, whose Debrief files give the badges. `stamp` is the
+ * worker's `updatedAt`, so a quiet worker's workspace is asked about once a minute, not every poll.
  */
 export async function debriefInfo(
   paseo: PaseoApi,
@@ -71,13 +73,16 @@ export async function debriefInfo(
   const known = diffs.get(key);
   let diff = known !== undefined && known.stamp === stamp && Date.now() - known.at < DIFF_TTL_MS ? known.diff : undefined;
   if (diff === undefined) {
-    const workspace = await paseo.workspaces.ref(workspaceId).refresh();
+    // A host that will not say reads as no changes, and is asked again after the TTL.
+    const workspace = await paseo.workspaces
+      .ref(workspaceId)
+      .refresh()
+      .catch(() => null);
     diff = workspace?.diffStat ?? null;
     diffs.set(key, { stamp, at: Date.now(), diff });
   }
-  if (diff === null || diff.additions + diff.deletions === 0) return null;
   const badges = serverId === null ? await reviewState(workspaceId) : { openComments: 0, story: false };
-  return { workspaceId, serverId, additions: diff.additions, deletions: diff.deletions, ...badges };
+  return { workspaceId, serverId, additions: diff?.additions ?? 0, deletions: diff?.deletions ?? 0, ...badges };
 }
 
 /** Leaves Debrief a request to open its tab on `workspaceId`, in `view`. */

@@ -438,7 +438,7 @@ export async function loadFleet(
     })),
   );
 
-  // What each worker has changed, for its Diff and Story buttons: on this Mac while Debrief is here, and
+  // Each worker's workspace as Debrief sees it, for its Diff and Story buttons: on this Mac while Debrief is here, and
   // on every other host through that host's Paseo (whether its Debrief is there is the app's to see).
   const debrief = new Map<string, DebriefInfo>();
   const localDebrief = await debriefInstalled();
@@ -446,11 +446,11 @@ export async function loadFleet(
     crewAgents
       .filter(({ agent, host }) => agent.workspaceId != null && (host.serverId !== null || localDebrief))
       .map(async ({ agent, host }) => {
-        const info = await withTimeout(
-          debriefInfo(host.api, agent.workspaceId ?? "", host.serverId, agent.updatedAt),
-          HOST_TIMEOUT_MS,
-          "A workspace's changes",
-        ).catch(() => null);
+        const workspaceId = agent.workspaceId ?? "";
+        // A host too slow to say what changed still has a workspace Debrief can open.
+        const info = await withTimeout(debriefInfo(host.api, workspaceId, host.serverId, agent.updatedAt), HOST_TIMEOUT_MS, "A workspace's changes").catch(
+          (): DebriefInfo => ({ workspaceId, serverId: host.serverId, additions: 0, deletions: 0, openComments: 0, story: false }),
+        );
         if (info !== null) debrief.set(agent.id, info);
       }),
   );

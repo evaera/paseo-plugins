@@ -120,7 +120,8 @@ export type BacklogItem = z.infer<typeof BacklogItemSchema>;
  * What a worker has changed, for the card's Diff and Story buttons, which open the Debrief plugin on its
  * workspace on whichever host it runs: the size of its diff (Paseo's `diffStat`), and, for a worker on
  * this Mac, how many Debrief comments are still open and whether Debrief has a story for it (those are
- * Debrief's files, readable only here). Absent for a worker with nothing changed.
+ * Debrief's files, readable only here). A workspace with nothing changed has zero sizes; absent only
+ * for a worker with no workspace, or where Debrief is not installed.
  */
 export const DebriefInfoSchema = z.object({
   workspaceId: z.string(),
@@ -508,6 +509,16 @@ export const askCoordinator = defineRpc({
   name: "mission-control.coordinator.ask",
   input: UserMessageSchema,
   output: z.object({ agentId: z.string() }),
+});
+
+/**
+ * The images the user sent with one message, as home-relative paths for `mission-control.files.image`,
+ * in the order they were attached. Empty for a message sent without images, or before the plugin kept them.
+ */
+export const chatImages = defineRpc({
+  name: "mission-control.chat.images",
+  input: z.object({ messageId: z.string().min(1).max(128) }),
+  output: z.object({ sources: z.array(z.string()) }),
 });
 
 /** The requests the plugin words for the user; the server fills each from its template. */

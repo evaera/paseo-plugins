@@ -42,7 +42,6 @@ export function IconButton({
   disabled = false,
   showLabel = false,
   touch = false,
-  flat = false,
 }: {
   icon: string;
   label: string;
@@ -54,9 +53,8 @@ export function IconButton({
   showLabel?: boolean;
   /** At least `TOUCH_TARGET` square, for the layouts a finger drives. */
   touch?: boolean;
-  /** No border or fill, for a bar of icons where a box around each would crowd it. */
-  flat?: boolean;
 }) {
+  const [hovered, setHovered] = useState(false);
   const colors = theme.colors;
   const color =
     tone === "accent" ? colors.accentForeground : tone === "danger" ? colors.statusDanger : colors.foreground;
@@ -76,11 +74,13 @@ export function IconButton({
         // A long label — a card action Mission Control named — wraps inside a narrow card instead of overflowing it.
         maxWidth: "100%" as const,
         ...(touch ? { minHeight: TOUCH_TARGET, minWidth: TOUCH_TARGET, justifyContent: "center" as const } : {}),
-        ...(flat ? { borderColor: "transparent", backgroundColor: "transparent" } : {}),
       },
+      // The accent fill has no lighter token to move to, so it dims instead.
+      raised: tone === "accent" ? { opacity: 0.85 } : { backgroundColor: colors.surface2, borderColor: colors.foregroundMuted },
+      pressed: { opacity: 0.7 },
       label: { color, fontSize: FONT_SIZE.small, fontWeight: "500" as const, flexShrink: 1 },
     }),
-    [colors, tone, disabled, showLabel, color, touch, flat],
+    [colors, tone, disabled, showLabel, color, touch],
   );
   return (
     <Pressable
@@ -89,7 +89,9 @@ export function IconButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={styles.button}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={({ pressed }) => [styles.button, hovered && !disabled ? styles.raised : null, pressed && !disabled ? styles.pressed : null]}
     >
       <Icon name={icon} size={ICON_SIZE} color={color} />
       {showLabel ? <Text style={styles.label}>{label}</Text> : null}

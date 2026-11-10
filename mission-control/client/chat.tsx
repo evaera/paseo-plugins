@@ -4,7 +4,8 @@
  * one press away in Paseo itself, which is what the Open button is for.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl } from "@getpaseo/plugin/client";
+import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
+import { useQuery } from "@tanstack/react-query";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
@@ -20,7 +21,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
-import type { AgentSummary, CoordinatorCommand, Suggestion } from "../shared/fleet";
+import { chatImages, type AgentSummary, type CoordinatorCommand, type Suggestion } from "../shared/fleet";
 import {
   admit,
   userMessage,
@@ -43,6 +44,7 @@ import { CoordinatorControls } from "./coordinator-controls";
 import { SuggestionChips } from "./suggestions";
 import { useCoordinatorSender } from "./coordinator-send";
 import { Markdown } from "./markdown";
+import { ImageGallery } from "./markdown-image";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { latestCoordinatorSeq, unreadKeys } from "./unread";
@@ -326,6 +328,7 @@ export function CoordinatorChat({
         borderRadius: 12,
         paddingHorizontal: 14,
         paddingVertical: 10,
+        gap: 8,
       },
       userText: { color: colors.foreground, fontSize: FONT_SIZE.content, lineHeight: Math.round(FONT_SIZE.content * 1.6) },
       coordinator: { alignSelf: "stretch" as const, position: "relative" as const },
@@ -486,9 +489,12 @@ export function CoordinatorChat({
       case "user":
         return (
           <View key={row.key} style={styles.user}>
-            <Text selectable style={styles.userText}>
-              {row.text}
-            </Text>
+            {row.imagesId === null ? null : <SentImages messageId={row.imagesId} theme={theme} />}
+            {row.text === "" ? null : (
+              <Text selectable style={styles.userText}>
+                {row.text}
+              </Text>
+            )}
           </View>
         );
       case "coordinator":
@@ -712,6 +718,27 @@ export function CoordinatorChat({
 }
 
 /** One attachment waiting to go: a thumbnail for an image, an icon for a file; its name, size and a remove button. */
+/** The widest a sent picture is drawn; a bubble holding only pictures has no words to size it. */
+const SENT_IMAGES_WIDTH = 360;
+
+/** The images the user sent with a message, from the copies the daemon kept, drawn as replies draw theirs. */
+function SentImages({ messageId, theme }: { messageId: string; theme: PluginTheme }) {
+  const list = useRpc(chatImages);
+  const found = useQuery({
+    queryKey: ["mission-control", "chat", "images", messageId],
+    queryFn: () => list({ messageId }),
+    // What a message went out with never changes.
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const images = useMemo(() => (found.data?.sources ?? []).map((src) => ({ alt: "", src })), [found.data]);
+  if (images.length === 0) return null;
+  return (
+    <View style={{ width: SENT_IMAGES_WIDTH, maxWidth: "100%" }}>
+      <ImageGallery images={images} theme={theme} maxHeight={280} tileMin={150} />
+    </View>
+  );
+}
+
 function AttachmentChip({
   attachment,
   theme,

@@ -109,11 +109,11 @@ describe("a card's links", () => {
 
 describe("unread Mission Control messages", () => {
   const rows = [
-    { key: "1", kind: "user" as const, text: "hi" },
+    { key: "1", kind: "user" as const, text: "hi", imagesId: null },
     { key: "2", kind: "coordinator" as const, text: "a" },
     { key: "3", kind: "tool" as const, text: "t", status: "completed" as const },
     { key: "5", kind: "coordinator" as const, text: "b" },
-    { key: "6", kind: "user" as const, text: "ok" },
+    { key: "6", kind: "user" as const, text: "ok", imagesId: null },
   ];
   it("counts only Mission Control's own messages after the last one seen", () => {
     expect(latestCoordinatorSeq(rows)).toBe(5);

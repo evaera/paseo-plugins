@@ -38,6 +38,7 @@ compile time. This file covers only what is specific to `mission-control`.
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `shared/attachments.ts`       | What the user can attach: the message's shape, image-or-file by Paseo's rules, the size cap. |
 | `server/uploads.ts`           | An attached file written to `$PASEO_HOME/uploads/`, described as Paseo's `uploaded_file`.     |
+| `server/chat-images.ts`       | The images the user sent, kept in the home's `.attachments/` so the chat can draw them again. |
 | `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
 | `server/home-name.ts`         | Names the home's project and workspace "Mission Control" instead of the folder's "home".         |
 | `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing an agent's attention.          |
@@ -703,8 +704,9 @@ foot, as in Paseo's own agent view, goes back to the end while the reader is awa
 
 ## Debrief from a card
 
-A worker whose workspace has changes can be opened in the Debrief review plugin, **on whichever host it runs**.
-Whether it has changes is Paseo's `diffStat` on the workspace snapshot, read through the worker's own host's
+Any worker with a workspace can be opened in the Debrief review plugin, **on whichever host it runs**, whether
+or not Paseo reports a diff: a worker that commits straight to its base branch has none against it, and Debrief
+compares other ranges. The diff's size is Paseo's `diffStat` on the workspace snapshot, read through the worker's own host's
 Paseo (`host.api.workspaces.ref(id).refresh()`) and kept per worker until its `updatedAt` moves or a minute
 passes (`server/debrief.ts`); on this Mac, Debrief's open comment count and whether it has a story come from its
 files, `plugin-data/debrief/reviews/<workspaceId>/review.json` and `story.json`, read and never written.
@@ -1067,6 +1069,17 @@ app picks with Expo's image and document pickers and pastes through a third-part
 of those is a host module, so on iOS and Android the attach button is not drawn and the chat takes
 words only. A phone *browser* gets the button, and its picker offers the photo library and camera.
 Paste takes images only, as Paseo's does, so pasting text or a copied file still pastes text.
+
+**A sent image is drawn in the conversation from a copy the plugin keeps.** Paseo's timeline records a
+user message's words and nothing that went with them (`user_message` is `text`, `messageId` and
+`clientMessageId`, through 0.15.4), so a message with images goes out under a `messageId` of its own,
+`mission-control-images-<uuid>`, which comes back as the row's `clientMessageId`, and
+`server/chat-images.ts` writes the images to `<home>/.attachments/<that id>/` before the send. The row asks
+`mission-control.chat.images` for their home-relative paths and draws them with the replies' own
+`ImageGallery`, so they load through `mission-control.files.image` and open in the lightbox. They are in
+the home because that call reads only the home and project roots. A message sent before this, or from
+Paseo's own composer, has no copy and draws its words alone; a copy over `MAX_IMAGE_BYTES`, or of a type
+that call does not draw (HEIC, AVIF, BMP, TIFF), is a placeholder. Nothing prunes the folder.
 
 The pending attachments live beside the draft on `globalThis` (`client/attachments.ts`), bytes and
 all, so a lost connection keeps them; a failed send puts them back unless something new was attached.

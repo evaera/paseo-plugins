@@ -47,7 +47,7 @@ describe("Debrief from a card", () => {
     await expect(requestDebriefOpen({ workspaceId: "../x", view: "diff" })).rejects.toThrow();
   });
 
-  it("counts open comments and sees a story, and offers nothing for a workspace with no changes", async () => {
+  it("counts open comments and sees a story, and still offers a workspace with no changes or an unreadable diff", async () => {
     const reviews = join(debrief(), "reviews", "wks_abc");
     await mkdir(reviews, { recursive: true });
     await writeFile(join(reviews, "review.json"), JSON.stringify({ comments: [{ resolved: true }, { resolved: false }, {}] }));
@@ -60,8 +60,12 @@ describe("Debrief from a card", () => {
       openComments: 2,
       story: true,
     });
-    expect(await debriefInfo(fakePaseo({ additions: 0, deletions: 0 }), "wks_abc", null, "t2")).toBeNull();
-    expect(await debriefInfo(fakePaseo(null), "wks_abc", null, "t3")).toBeNull();
+    const unchanged = { workspaceId: "wks_abc", serverId: null, additions: 0, deletions: 0, openComments: 2, story: true };
+    expect(await debriefInfo(fakePaseo({ additions: 0, deletions: 0 }), "wks_abc", null, "t2")).toEqual(unchanged);
+    expect(await debriefInfo(fakePaseo(null), "wks_abc", null, "t3")).toEqual(unchanged);
+    const failing = { workspaces: { ref: () => ({ refresh: async () => Promise.reject(new Error("offline")) }) } } as unknown as PaseoApi;
+    expect(await debriefInfo(failing, "wks_abc", null, "t4")).toEqual(unchanged);
+    expect(await debriefInfo(fakePaseo({ additions: 1, deletions: 0 }), "not a workspace", null, "t5")).toBeNull();
   });
 
   it("reads a worker on another host by its own Paseo, without this Mac's badges, and asks again only once it moves", async () => {

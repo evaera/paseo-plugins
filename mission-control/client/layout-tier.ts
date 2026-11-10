@@ -59,9 +59,10 @@ export function touchTargets(tier: LayoutTier, coarsePointer: boolean): boolean 
 export const CARD_TITLE_MIN_WIDTH = 320;
 
 /**
- * Which of a card bar's two labelled buttons, Back and Go to Chat, keep their labels. `titleRoom` is the
- * title's width with neither label drawn; each `Extra` is what its label adds to its button. Back keeps
- * its label first: Go to Chat's goes before it does. A bar not measured yet (`titleRoom` 0) draws icons.
+ * Which of a card bar's labelled buttons keep their labels: Back, and the trailing View Diff and Go to
+ * Chat, which go together as `open`. `titleRoom` is the title's width with no label drawn; each `Extra`
+ * is what the labels add to their buttons. Back keeps its label first: the trailing ones go before it
+ * does. A bar not measured yet (`titleRoom` 0) draws icons.
  */
 export function cardBarLabels(
   titleRoom: number,

@@ -40,6 +40,21 @@ const AttachmentData = z
     message: `An attachment is larger than ${MAX_ATTACHMENT_BYTES / MB} MB.`,
   });
 
+/**
+ * A message the chat sent with images goes out under an id with this prefix, which the daemon records
+ * as the timeline item's `clientMessageId`: the timeline keeps none of the images, so the id is how a
+ * row finds the copies the plugin kept (`server/chat-images.ts`).
+ */
+export const IMAGE_MESSAGE_ID_PREFIX = "mission-control-images-";
+
+/** The home's folder of those copies, one folder per message id. */
+export const CHAT_IMAGES_DIR = ".attachments";
+
+/** Strict, because the id names a folder: the prefix and a UUID, nothing else. */
+export function isImageMessageId(id: string | null | undefined): id is string {
+  return typeof id === "string" && /^mission-control-images-[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id);
+}
+
 export const ImagePartSchema = z.object({
   /** Base64, without a `data:` prefix. */
   data: AttachmentData.refine((data) => data.length > 0, { message: "An image is empty." }),

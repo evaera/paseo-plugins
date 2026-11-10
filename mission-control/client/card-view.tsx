@@ -53,6 +53,7 @@ const DETAILS_LABEL_MIN_WIDTH = 480;
 
 const BACK_LABEL = "Back";
 const OPEN_LABEL = "Go to Chat";
+const DIFF_LABEL = "View Diff";
 /** The worker's box grows to this many lines, then scrolls. */
 const WORKER_INPUT_MAX_LINES = 6;
 /** A card with no worker has nothing beside it, so it is held to a readable width. */
@@ -115,6 +116,7 @@ export function CardView({
   const agent = card?.agent ?? null;
   const tasks = useBoardTasks();
   const debriefTarget = card === null ? null : cardDebriefTarget(card);
+  const canDebrief = debriefTarget !== null && tasks.debrief != null && tasks.canDebrief?.(debriefTarget.serverId) !== false;
   const sideBySide = !compact && width >= SIDE_BY_SIDE_WIDTH;
   const tier = useLayoutTier();
   const touch = useTouchTargets(tier);
@@ -126,10 +128,15 @@ export function CardView({
   const [titleWidth, setTitleWidth] = useState(0);
   const [backDrawn, setBackDrawn] = useState(0);
   const [openDrawn, setOpenDrawn] = useState(0);
+  const [diffDrawn, setDiffDrawn] = useState(0);
   const backLabelWidth = useRef(labelWidthEstimate(BACK_LABEL));
   const openLabelWidth = useRef(labelWidthEstimate(OPEN_LABEL));
-  const titleRoom = titleWidth + backDrawn + (onOpen === null ? 0 : openDrawn);
-  const labels = cardBarLabels(titleRoom, backLabelWidth.current, onOpen === null ? 0 : openLabelWidth.current);
+  const diffLabelWidth = useRef(labelWidthEstimate(DIFF_LABEL));
+  // View diff and Go to Chat keep or drop their labels together, so the rule sees them as one.
+  const trailingDrawn = (onOpen === null ? 0 : openDrawn) + (canDebrief ? diffDrawn : 0);
+  const trailingExtra = (onOpen === null ? 0 : openLabelWidth.current) + (canDebrief ? diffLabelWidth.current : 0);
+  const titleRoom = titleWidth + backDrawn + trailingDrawn;
+  const labels = cardBarLabels(titleRoom, backLabelWidth.current, trailingExtra);
   const measureLabel =
     (shown: boolean, width: { current: number }, setDrawn: (drawn: number) => void) =>
     (event: { nativeEvent: { layout: { width: number } } }) => {
@@ -139,6 +146,7 @@ export function CardView({
     };
   const onBackLayout = measureLabel(labels.back, backLabelWidth, setBackDrawn);
   const onOpenLayout = measureLabel(labels.open, openLabelWidth, setOpenDrawn);
+  const onDiffLayout = measureLabel(labels.open, diffLabelWidth, setDiffDrawn);
   const onTitleLayout = (event: { nativeEvent: { layout: { width: number } } }) => setTitleWidth(event.nativeEvent.layout.width);
   /**
    * A card stacked over its worker's transcript folds away behind the bar's Details toggle, and unfolded
@@ -222,7 +230,6 @@ export function CardView({
       </>
     );
 
-  const canDebrief = debriefTarget !== null && tasks.debrief != null && tasks.canDebrief?.(debriefTarget.serverId) !== false;
   const workerTitle = agent?.title ?? null;
   const title = card?.title ?? workerTitle ?? "Card";
   // The task's title leads; the worker's own follows only when it says something the task's does not.
@@ -242,7 +249,7 @@ export function CardView({
       ) : (
         <View style={styles.slimBar}>
           <View style={styles.barButton} onLayout={onBackLayout}>
-            <IconButton icon="ChevronLeft" label={BACK_LABEL} showLabel={labels.back} theme={theme} onPress={onBack} touch={touch} flat />
+            <IconButton icon="ChevronLeft" label={BACK_LABEL} showLabel={labels.back} theme={theme} onPress={onBack} touch={touch} />
           </View>
           <Pressable
             disabled={!foldable}
@@ -275,11 +282,13 @@ export function CardView({
             ) : null}
           </Pressable>
           {!canDebrief || debriefTarget === null ? null : (
-            <IconButton icon="FileDiff" label="View diff" theme={theme} onPress={() => tasks.debrief?.(debriefTarget, "diff")} touch={touch} flat />
+            <View style={styles.barButton} onLayout={onDiffLayout}>
+              <IconButton icon="FileDiff" label={DIFF_LABEL} showLabel={labels.open} theme={theme} onPress={() => tasks.debrief?.(debriefTarget, "diff")} touch={touch} />
+            </View>
           )}
           {onOpen === null ? null : (
             <View style={styles.barButton} onLayout={onOpenLayout}>
-              <IconButton icon="ExternalLink" label={OPEN_LABEL} showLabel={labels.open} theme={theme} onPress={onOpen} touch={touch} flat />
+              <IconButton icon="ExternalLink" label={OPEN_LABEL} showLabel={labels.open} theme={theme} onPress={onOpen} touch={touch} />
             </View>
           )}
         </View>

@@ -10,6 +10,7 @@
  */
 import type { usePaseo } from "@getpaseo/plugin/client";
 
+import { isImageMessageId } from "../shared/attachments";
 import { isWatchMessageId } from "../shared/fleet";
 
 type PaseoApi = ReturnType<typeof usePaseo>;
@@ -19,7 +20,7 @@ type TimelineItem = TimelineEntry["item"];
 type ToolCallItem = Extract<TimelineItem, { type: "tool_call" }>;
 
 export type TranscriptRow =
-  | { key: string; kind: "user"; text: string }
+  | { key: string; kind: "user"; text: string; /** The message's id when it went out with images the plugin kept. */ imagesId: string | null }
   | { key: string; kind: "coordinator"; text: string }
   | { key: string; kind: "event"; text: string }
   | { key: string; kind: "tool"; text: string; status: ToolCallItem["status"] }
@@ -154,9 +155,10 @@ export function transcriptRows(entries: readonly TimelineEntry[]): TranscriptRow
     switch (item.type) {
       case "user_message": {
         const summary = injectedSummary(item.text, item.clientMessageId);
-        // A message of attachments alone has no words; the row still says the user sent something.
-        const text = item.text.trim() === "" ? "(attachments)" : item.text;
-        rows.push(summary === null ? { key, kind: "user", text } : { key, kind: "event", text: summary });
+        const imagesId = isImageMessageId(item.clientMessageId) ? item.clientMessageId : null;
+        // A message of files alone has no words; the row still says the user sent something. Images speak for themselves.
+        const text = item.text.trim() !== "" ? item.text : imagesId === null ? "(attachments)" : "";
+        rows.push(summary === null ? { key, kind: "user", text, imagesId } : { key, kind: "event", text: summary });
         break;
       }
       case "assistant_message": {

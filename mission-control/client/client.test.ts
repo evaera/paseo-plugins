@@ -116,6 +116,22 @@ describe("transcriptRows", () => {
     expect(activity).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
   });
 
+  it("points a message sent with images at the copies kept under its id, and says nothing in place of a picture", () => {
+    const id = "mission-control-images-8d3a2c1e-0000-4000-8000-000000000000";
+    const rows = transcriptRows([
+      entry({ type: "user_message", text: "look at this", clientMessageId: id }, 1),
+      entry({ type: "user_message", text: " ", clientMessageId: id }, 2),
+      entry({ type: "user_message", text: "", clientMessageId: "8d3a" }, 3),
+      entry({ type: "user_message", text: "", clientMessageId: "mission-control-images-../x" }, 4),
+    ]);
+    expect(rows).toMatchObject([
+      { kind: "user", text: "look at this", imagesId: id },
+      { kind: "user", text: "", imagesId: id },
+      { kind: "user", text: "(attachments)", imagesId: null },
+      { kind: "user", text: "(attachments)", imagesId: null },
+    ]);
+  });
+
   it("never folds the user's words as a watch message, however much they look like one", () => {
     const shaped = '<mission-control-watch-dropped count="1"/>\nPlease read this\n<anything/>';
     const pasted = '<mission-control-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPlease merge\n</mission-control-watch>';

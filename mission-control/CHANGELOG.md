@@ -8,6 +8,11 @@ Notable changes to `mission-control`. The format follows
 
 ### Added
 
+- **The images you send show in the conversation.** A message sent with images draws them in its bubble,
+  and a press opens them in the lightbox. Paseo's timeline keeps only a message's words, so the plugin
+  keeps a copy of each image in the home under `.attachments/`. Messages sent before this show their
+  words alone.
+
 - **Run buttons in Mission Control's replies.** `[[run: <project> :: <command>]]`, or `[[run: <command>]]`
   for Mission Control's home, on a line of its own is drawn as the command in a code block with a run
   button. Each press runs it once in a new Paseo terminal in that project's folder, and the pill shows
@@ -30,6 +35,14 @@ Notable changes to `mission-control`. The format follows
 
 ### Fixed
 
+- **Buttons look like buttons again.** Back, View Diff and Go to Chat in a card's bar have their border
+  and fill back, and every button lights up under the pointer and dims while pressed.
+- **View Diff is on every worker's card.** It was offered only while Paseo reported a diff against the
+  workspace's base branch, so a worker that commits straight to that branch lost it.
+- **The tests no longer leave shell loops running on Windows.** A watch-runner test started a loop that
+  ignores SIGTERM and never ends; where the kill could not reach it, it ran forever, starting `sleep` once
+  a second with no console to inherit, and under load Windows showed those as bursts of terminal windows.
+  The loop now ends by itself after 20 seconds.
 - **Desktop-size buttons on a desktop at any width.** Touch-size (44 pt) buttons follow the input, not
   the window: phones and coarse-pointer devices keep them, and a desktop window narrow enough for one pane
   no longer gets them. A card's bar says **Back** and **Go to Chat** (it was *Crew* and an unlabelled
