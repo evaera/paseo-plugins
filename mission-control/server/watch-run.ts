@@ -99,7 +99,7 @@ function runProcess(launcher: Launcher, options: RunOptions): Promise<RunResult>
       windowsHide: true,
     });
 
-    let killTimer: NodeJS.Timeout | undefined;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     function stop(): void {
       if (killTimer !== undefined) return;
       killGroup(child.pid, "SIGTERM");

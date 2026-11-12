@@ -262,11 +262,11 @@ optional.
 Users install from Git: `paseo plugin add git:evaera/paseo-plugins:<plugin>`, optionally with
 `--ref <plugin>/v<version>`. A Git install runs nothing but the manifest's `build` commands, so
 devDependencies are never on disk there: everything the host provides stays a devDependency, and
-only code the daemon must bundle into the client (Debrief's CodeMirror, `diff` and
-`@getpaseo/highlight`) is a real `dependency`. Debrief's manifest runs `npm ci --omit=dev
---ignore-scripts` for those, so its `package-lock.json` must stay in sync with `package.json`;
-Mission Control has no runtime dependencies and no `build`. A development install from a directory
-uses whatever `npm install` put in the folder.
+only code a plugin runs that the host does not provide is a real `dependency`: Debrief's CodeMirror,
+`diff` and `@getpaseo/highlight`, which the daemon bundles into the client, and Mission Control's
+`cross-spawn`, which its server half needs to run a `.cmd` on Windows. Both manifests run `npm ci
+--omit=dev --ignore-scripts` for those, so each `package-lock.json` must stay in sync with its
+`package.json`. A development install from a directory uses whatever `npm install` put in the folder.
 
 Each manifest carries `name` and `icon` (`assets/icon.png`, rendered from `assets/icon.svg`), and
 `assets/` is in `files`. A release is a version in `package.json` (and the lock), a matching

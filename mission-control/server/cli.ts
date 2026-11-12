@@ -9,7 +9,8 @@
  * is installed, which `paseo plugin ls` does. `herald` deletes its helpers the same way; the lookup
  * below is the same one.
  */
-import { spawn } from "node:child_process";
+import type { spawn as nodeSpawn } from "node:child_process";
+import crossSpawn from "cross-spawn";
 import { access, constants } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -39,7 +40,9 @@ async function findCli(): Promise<string | null> {
   const shipped = process.env.PASEO_CLI?.trim();
   const candidates = [
     ...(shipped === undefined || shipped === "" ? [] : [shipped]),
-    ...[...onPath, join(homedir(), ".local", "bin"), ...EXTRA_CLI_DIRS].map((dir) => join(dir, "paseo")),
+    ...[...onPath, join(homedir(), ".local", "bin"), ...EXTRA_CLI_DIRS].flatMap((dir) =>
+      (process.platform === "win32" ? ["paseo.exe", "paseo.cmd", "paseo.bat"] : ["paseo"]).map((name) => join(dir, name)),
+    ),
   ];
   for (const candidate of candidates) {
     try {
@@ -60,7 +63,7 @@ function paseoCli(): Promise<string | null> {
 
 function spawnCli(cli: string, args: string[], timeoutMs: number): Promise<CliResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cli, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = (crossSpawn as typeof nodeSpawn)(cli, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {

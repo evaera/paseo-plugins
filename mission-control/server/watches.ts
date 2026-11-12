@@ -209,8 +209,8 @@ export class WatchRunner {
   private readonly running = new Set<string>();
   private readonly aborter = new AbortController();
   private flushing: Promise<void> = Promise.resolve();
-  private readonly afterTurn = new Set<NodeJS.Timeout>();
-  private timer: NodeJS.Timeout | undefined;
+  private readonly afterTurn = new Set<ReturnType<typeof setTimeout>>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly now: () => Date;
   private readonly run: typeof runWatchScript;
   private readonly timeoutMs: number;
