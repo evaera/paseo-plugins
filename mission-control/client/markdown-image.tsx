@@ -22,6 +22,8 @@ import { Lightbox, lightboxJustClosed } from "./lightbox";
 import { stepIndex } from "./lightbox-zoom";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
 import { whenNearView } from "./web";
+import { isVideoPath } from "../shared/videos";
+import { MarkdownVideo } from "./markdown-video";
 
 export interface ImageRef {
   alt: string;
@@ -204,8 +206,12 @@ function GroupLightbox({
 }) {
   const image = images[index];
   if (image === undefined) return null;
-  const previous = stepIndex(index, -1, images.length);
-  const next = stepIndex(index, 1, images.length);
+  const photos = images.flatMap((candidate, position) => isVideoPath(candidate.src) ? [] : [position]);
+  const photoIndex = photos.indexOf(index);
+  const previousPhoto = stepIndex(photoIndex, -1, photos.length);
+  const nextPhoto = stepIndex(photoIndex, 1, photos.length);
+  const previous = previousPhoto === null ? null : photos[previousPhoto] ?? null;
+  const next = nextPhoto === null ? null : photos[nextPhoto] ?? null;
   return (
     <OpenedImage
       // Keyed by its place, so a neighbour opens at fit rather than at the last one's zoom.
@@ -244,7 +250,11 @@ export function MarkdownImage({
   );
 }
 
-function InlineImage({
+function InlineImage(props: { image: ImageRef; theme: PluginTheme; maxHeight: number; localFiles: boolean; onOpen: () => void }) {
+  return isVideoPath(props.image.src) ? <MarkdownVideo {...props} /> : <InlineRasterImage {...props} />;
+}
+
+function InlineRasterImage({
   image,
   theme,
   maxHeight,

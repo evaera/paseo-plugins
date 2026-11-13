@@ -73,6 +73,18 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
   from an `https://` address. PNG, JPEG, GIF and WebP up to 8 MB each; anything else shows a note saying
   why. Images and links work the same in a worker's transcript in its card. Paseo's own agent view
   already draws Markdown images by itself.
+- **Videos:** use the same `![caption](path/to/clip.mp4)` syntax for MP4, WebM or MOV.
+  Web and desktop show a fitted player with controls and the browser's fullscreen option;
+  codec support depends on the browser. Local videos are checked by container header and limited
+  to 100 MB, using the same home/project roots as images. Download starts near the viewport
+  (or on pressing Load video), with progress, in bounded 256 KB RPC chunks through Paseo's
+  connection, including remote hosts and relays. The entire clip is buffered before playback;
+  its Blob URL is revoked when the message unmounts. HTTPS video URLs load directly in the browser.
+  This is an image-syntax convention, not standard CommonMark video syntax; raw HTML is not needed.
+  iOS and Android currently show the caption and "Video plays on desktop". Native playback needs
+  an upstream Paseo SDK video component, or a way to write downloaded bytes to a native file for
+  DocumentFrame. A daemon range-serving media endpoint would later allow seeking and playback
+  without downloading the whole clip first.
 - **How full its memory is** — the ring at the end of the chat's buttons shows how much of Mission
   Control's context window is used, the way Paseo's own chat does: amber from 70%, red past 90%. Hover
   over it, or tap it on a phone, for the share and the token counts.

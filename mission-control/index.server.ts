@@ -16,6 +16,8 @@ import { registerCrewSeen } from "./server/crew-seen";
 import { type CrewLocations, ReportCache, loadFleet, namedCrew, readAgentTools, resolveCoordinator } from "./server/fleet";
 import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
 import { findLinkedFiles, readLocalImage, revealLocalFile } from "./server/local-files";
+import { readVideoChunk } from "./server/videos";
+import { videoChunk } from "./shared/videos";
 import { chatImageSources } from "./server/chat-images";
 import { CHARTER_FILE, NEW_CHARTER_FILE, acknowledgeCharter, writeNewCharter } from "./server/charter-file";
 import { isHomeReady, prepareHome, readBacklog, removeSuggestion } from "./server/home";
@@ -181,6 +183,7 @@ export default function contribute(server: PluginServerContext) {
   }
   server.handle(findHomeFiles, async ({ paths }, { paseo }) => findLinkedFiles(await home(), await projectRoots(paseo), paths));
   server.handle(readImage, async ({ src }, { paseo }) => readLocalImage(await home(), await projectRoots(paseo), src));
+  server.handle(videoChunk, async ({ src, offset }, { paseo }) => readVideoChunk(await home(), await projectRoots(paseo), src, offset));
   server.handle(revealFile, async ({ path }, { paseo }) => {
     await revealLocalFile(await home(), await projectRoots(paseo), path);
     return {};

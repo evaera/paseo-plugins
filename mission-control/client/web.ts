@@ -12,8 +12,33 @@
  * image back until it scrolls near the view, and the lightbox's wheel, keys and remembered focus.
  */
 import { Platform } from "react-native";
+import { createElement } from "react";
 
 import { rasterImageType } from "../shared/attachments";
+
+export const canPlayVideo = Platform.OS === "web";
+
+/** Browser-owned Blob resources, kept out of the native runtime. */
+export function videoBlob(chunks: readonly string[], mimeType: string): { uri: string; dispose: () => void } {
+  if (!canPlayVideo) throw new Error("Video plays on desktop");
+  const web = globalThis as unknown as {
+    atob: (value: string) => string;
+    Blob: new (parts: Uint8Array[], options: { type: string }) => object;
+    URL: { createObjectURL: (blob: object) => string; revokeObjectURL: (url: string) => void };
+  };
+  const parts = chunks.map((chunk) => Uint8Array.from(web.atob(chunk), (char) => char.charCodeAt(0)));
+  const uri = web.URL.createObjectURL(new web.Blob(parts, { type: mimeType }));
+  return { uri, dispose: () => web.URL.revokeObjectURL(uri) };
+}
+
+export function videoPlayer(uri: string, label: string, maxHeight: number, onError: () => void) {
+  if (!canPlayVideo) return null;
+  return createElement("video", {
+    src: uri, controls: true, preload: "metadata", muted: true, playsInline: true,
+    "aria-label": label, onError,
+    style: { width: "100%", maxHeight, objectFit: "contain", borderRadius: 6 },
+  });
+}
 
 /** Only what this module reads off the web globals; the DOM library stays off. */
 interface WebGlobals {

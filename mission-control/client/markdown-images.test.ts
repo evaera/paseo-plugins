@@ -4,6 +4,15 @@ import { isImagePath, joinRelative, localPathOf } from "../shared/local-path";
 import { fileCandidates, inlineTokens, lookupIn, pathCandidate, type InlineToken } from "./file-links";
 import { classifyImage, fitImage, imageName, refusalText } from "./image-source";
 import { inlineTexts, parseMarkdown } from "./markdown-parse";
+import { isVideoPath, videoRefusal } from "../shared/videos";
+
+it("uses image syntax for video targets and explains video refusals", () => {
+  expect(images(inlineTokens("![demo](tasks/demo.mp4)", lookupIn({})))).toEqual([{ alt: "demo", src: "tasks/demo.mp4" }]);
+  expect(["clip.MP4", "clip.webm", "file:///clip.mov", "https://example.com/clip.mp4?token=x"].every(isVideoPath)).toBe(true);
+  expect(isVideoPath("clip.png")).toBe(false);
+  expect(videoRefusal("too-large", 101 * 1024 * 1024)).toContain("100 MB");
+  expect(videoRefusal("unsupported", null)).toContain("MP4, WebM or MOV");
+});
 
 const HOME = "C:/Users/eryn/.paseo/plugin-data/mission-control/home";
 const none = lookupIn({});

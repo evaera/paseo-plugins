@@ -536,7 +536,9 @@ the regression test — rather than dispatching a duplicate.
   on a press; the alt text is its caption, so make it say what to look at. Use a path in your home
   (`tasks/<id>/shots/after.png`), an absolute path or `file:///` URL inside a project Paseo has, or an
   `https://` URL; PNG, JPEG, GIF or WebP, 8 MB at most. Anything else is drawn as a placeholder saying
-  why. Put images for one point on consecutive lines and they are drawn side by side; show the two or
+  why. Videos use the same syntax, `![what to watch](path/to/clip.mp4)`: MP4, WebM or MOV,
+  up to 100 MB locally, with playback controls on web and desktop. Native apps show a
+  "plays on desktop" note. Put images for one point on consecutive lines and they are drawn side by side; show the two or
   three that matter, not every shot a worker took, and link the folder for the rest.
 - Every escalation stands alone: lead with the evidence, then the consequence, the options, and a
   recommendation.
