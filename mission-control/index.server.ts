@@ -15,7 +15,7 @@ import {
 import { registerCrewSeen } from "./server/crew-seen";
 import { type CrewLocations, ReportCache, loadFleet, namedCrew, readAgentTools, resolveCoordinator } from "./server/fleet";
 import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
-import { findLinkedFiles, readLocalImage, revealLocalFile } from "./server/local-files";
+import { findLinkedFiles, linkedFilesNeedProjects, readLocalImage, revealLocalFile } from "./server/local-files";
 import { readVideoChunk } from "./server/videos";
 import { videoChunk } from "./shared/videos";
 import { chatImageSources } from "./server/chat-images";
@@ -54,6 +54,7 @@ import {
   launchCoordinator as launchCoordinatorRpc,
   listCandidates as listCandidatesRpc,
   loadFleet as loadFleetRpc,
+  staleFleet,
   markCoordinatorSeen as markCoordinatorSeenRpc,
   readConfig,
   relaunchCrew as relaunchCrewRpc,
@@ -102,8 +103,12 @@ export default function contribute(server: PluginServerContext) {
   });
 
   let pendingFleet: ReturnType<typeof loadFleet> | undefined;
+  let lastGoodFleet: Awaited<ReturnType<typeof loadFleet>> | undefined;
+  let fleetGeneration = 0;
+  let lastGoodGeneration = 0;
   metrics.handle(loadFleetRpc, (_input, { paseo }) => {
     watches.remember(paseo);
+    const generation = ++fleetGeneration;
     // Release a stuck shared assembly before the host's 30-second plugin RPC deadline.
     pendingFleet ??= withTimeout(readMissionControlConfig().then((config) => loadFleet(
       paseo,
@@ -112,11 +117,21 @@ export default function contribute(server: PluginServerContext) {
       reports,
       () => watches.runner.summaries(),
       locations,
-    )), 20_000, "The board").then((fleet) => {
+    )).then((fleet) => {
+      // A late success still seeds the cache, but must not overwrite a newer successful assembly.
+      if (generation >= lastGoodGeneration) {
+        lastGoodFleet = fleet;
+        lastGoodGeneration = generation;
+      }
+      return fleet;
+    }), 20_000, "The board").then((fleet) => {
       // A Mission Control agent launched before the plugin named its home gets its name the first time the board looks.
       const workspaceId = fleet.coordinator?.workspaceId ?? null;
       if (workspaceId !== null && fleet.coordinatorInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
       return fleet;
+    }).catch((error: unknown) => {
+      if (lastGoodFleet === undefined) throw error;
+      return staleFleet(lastGoodFleet, error);
     }).finally(() => { pendingFleet = undefined; });
     return pendingFleet;
   });
@@ -148,7 +163,7 @@ export default function contribute(server: PluginServerContext) {
     const config = await readMissionControlConfig();
     const backlog = await readBacklog(resolveHome(config)).catch(() => []);
     const named = new Set(namedCrew(backlog, config.coordinatorAgentId).keys());
-    return { api: await hosts.api(paseo, serverId), serverId, named };
+    return { api: await hosts.api(paseo, serverId), serverId, named, coordinatorAgentId: config.coordinatorAgentId.trim() };
   }
   metrics.handle(steerCrewRpc, async ({ agentId, serverId, text }, { paseo }) => {
     await steerCrew(await crewTarget(paseo, serverId), steers, agentId, text, async (agent, said, answer) => {
@@ -188,7 +203,11 @@ export default function contribute(server: PluginServerContext) {
       return [];
     }
   }
-  metrics.handle(findHomeFiles, async ({ paths }, { paseo }) => findLinkedFiles(await home(), await projectRoots(paseo), paths));
+  metrics.handle(findHomeFiles, async ({ paths }, { paseo }) => {
+    const root = await home();
+    const roots = linkedFilesNeedProjects(root, paths) ? await projectRoots(paseo) : [];
+    return findLinkedFiles(root, roots, paths);
+  });
   metrics.handle(readImage, async ({ src }, { paseo }) => readLocalImage(await home(), await projectRoots(paseo), src));
   metrics.handle(videoChunk, async ({ src, offset }, { paseo }) => readVideoChunk(await home(), await projectRoots(paseo), src, offset));
   metrics.handle(revealFile, async ({ path }, { paseo }) => {

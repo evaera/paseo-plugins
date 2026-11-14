@@ -94,6 +94,15 @@ export async function resolveLocalFile(
   return { refused: "outside" };
 }
 
+/** Only absolute paths outside the lexical home need the daemon's project directory. */
+export function linkedFilesNeedProjects(home: string, candidates: readonly string[]): boolean {
+  const root = resolve(home);
+  return candidates.some((source) => {
+    const path = localPathOf(source);
+    return path !== null && isAbsolute(path) && !isInside(root, resolve(path));
+  });
+}
+
 /** Each of `candidates` that is a file in the home or a project, the way `mission-control.files.find` answers. */
 export async function findLinkedFiles(
   home: string,

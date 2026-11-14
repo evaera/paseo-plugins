@@ -39,6 +39,24 @@ const rpcWindows = selected.flatMap((row) => {
 });
 const rpcMethods = new Map();
 const processes = new Map();
+const timelineTails = new Map();
+for (const row of selected) {
+  if (row.msg !== "Plugin output" || typeof row.message !== "string") continue;
+  let event;
+  try { event = JSON.parse(row.message); } catch { continue; }
+  if (event.event !== "plugin_timeline_tail") continue;
+  const key = `${event.source}/${event.agentId}`;
+  const tail = timelineTails.get(key) ?? { agentId: event.agentId, source: event.source, started: 0, completed: 0, failed: 0, totalMs: 0, maxMs: 0, maxItems: 0 };
+  if (event.phase === "start") tail.started += 1;
+  else {
+    if (event.phase === "complete") tail.completed += 1;
+    else tail.failed += 1;
+    tail.totalMs += event.durationMs ?? 0;
+    tail.maxMs = Math.max(tail.maxMs, event.durationMs ?? 0);
+    tail.maxItems = Math.max(tail.maxItems, event.items ?? 0);
+  }
+  timelineTails.set(key, tail);
+}
 for (const window of rpcWindows) {
   const processKey = `${window.plugin}/${window.pid}`;
   const cpu = processes.get(processKey) ?? { plugin: window.plugin, pid: window.pid, windowMs: 0, processCpuMs: 0 };
@@ -65,6 +83,7 @@ console.log(JSON.stringify({
   })).sort((a, b) => b.count - a.count),
   configReadTimeouts: selected.filter((row) => row.msg === "Failed to parse paseo.json; treating workspace as having no scripts" && row.err?.message === "Project config unavailable").length,
   pluginRpcMetricsWindows: rpcWindows.length,
+  pluginTimelineTails: [...timelineTails.values()],
   // Handler times exclude IPC, daemon scheduling, and input/output validation. They include awaited I/O/SDK calls.
   pluginRpcMethods: [...rpcMethods.values()].map((method) => ({ ...method,
     startedPerMinute: +(method.started / Number(minutes)).toFixed(2),

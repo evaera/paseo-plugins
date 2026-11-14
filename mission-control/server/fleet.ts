@@ -28,10 +28,9 @@ import { debriefInfo, debriefInstalled } from "./debrief";
 import { isHomeReady, readBacklog, readProjects, readSuggestions } from "./home";
 import type { AgentListOptions, PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 import { HOST_TIMEOUT_MS, withTimeout, type CrewHost, type HostClients } from "./hosts";
+import { timelineTails, type TimelineTails } from "./timeline-tails";
 
 const PAGE_SIZE = 200;
-/** Enough of a timeline to reach back past a turn's last tool calls to its closing message. */
-const REPORT_TAIL = 30;
 
 export function summarizeAgent(
   agent: PaseoAgent,
@@ -139,29 +138,56 @@ interface CachedReport {
   report: CrewReportSummary | null;
 }
 
-/** Each crewmate's last status line, re-read only when the agent has moved. */
+/** Cached status lines; changed workers refresh in the background without holding up the board. */
 export class ReportCache {
   private readonly reports = new Map<string, CachedReport>();
+  private readonly pending = new Set<string>();
+  private readonly latest = new Map<string, PaseoAgent>();
+  private readonly cooldown = new Map<string, { until: number; retryMs: number }>();
+  private coordinatorId = "";
+
+  constructor(private readonly tails: TimelineTails = timelineTails) {}
+
+  private allowed(agent: PaseoAgent): boolean {
+    return agent.id !== this.coordinatorId && agent.labels[CREW_LABELS.role] !== CREW_LABELS.coordinatorRole &&
+      (agent.archivedAt ?? null) === null && agent.status !== "running" && agent.status !== "initializing";
+  }
 
   async reportFor(paseo: PaseoApi, agent: PaseoAgent): Promise<CrewReportSummary | null> {
-    // Agent IDs are UUIDs, unique across hosts, so they key the cache on their own.
     const cached = this.reports.get(agent.id);
-    // A running turn has not closed yet, so its timeline holds no new status
-    // line; the previous one stays on the card until it does.
-    if (agent.status === "running" || agent.status === "initializing") return cached?.report ?? null;
-    if (cached !== undefined && cached.updatedAt === agent.updatedAt) return cached.report;
-    const page = await paseo.agents
-      .ref(agent.id)
-      .timeline.refetch({ direction: "tail", limit: REPORT_TAIL, projection: "projected" });
-    const report = parseCrewReport(closingText(page.entries.map((entry) => entry.item)));
-    this.reports.set(agent.id, { updatedAt: agent.updatedAt, report });
-    return report;
+    const latest = this.latest.get(agent.id);
+    if (latest !== undefined && latest.updatedAt > agent.updatedAt) return cached?.report ?? null;
+    this.latest.set(agent.id, agent);
+    if (!this.allowed(agent)) return cached?.report ?? null;
+    if (cached !== undefined && cached.updatedAt >= agent.updatedAt) return cached.report;
+    if (this.pending.has(agent.id) || Date.now() < (this.cooldown.get(agent.id)?.until ?? 0)) return cached?.report ?? null;
+
+    this.pending.add(agent.id);
+    const updatedAt = agent.updatedAt;
+    const started = Date.now();
+    // Never make a fleet snapshot wait for a timeline projection. One queued/in-flight read per agent.
+    void this.tails.read(paseo, {
+      agentId: agent.id, source: "board-report", updatedAt,
+      allowed: () => { const current = this.latest.get(agent.id); return current !== undefined && this.allowed(current); },
+    }).then((page) => {
+      const current = this.latest.get(agent.id);
+      if (page === null || current === undefined) return;
+      const duration = Date.now() - started;
+      this.cooldown.set(agent.id, { until: Date.now() + (duration >= 1000 ? Math.min(60_000, duration * 2) : 0), retryMs: 5000 });
+      if (this.allowed(current)) this.reports.set(agent.id, { updatedAt: page.agent?.updatedAt ?? updatedAt, report: parseCrewReport(closingText(page.entries.map((entry) => entry.item))) });
+    }).catch(() => {
+      if (!this.latest.has(agent.id)) return;
+      const retryMs = Math.min(60_000, Math.max(this.cooldown.get(agent.id)?.retryMs ?? 5000, (Date.now() - started) * 2));
+      this.cooldown.set(agent.id, { until: Date.now() + retryMs, retryMs: Math.min(60_000, retryMs * 2) });
+    }).finally(() => this.pending.delete(agent.id));
+    return cached?.report ?? null;
   }
 
   /** Drops agents no longer in the crew, so the map cannot grow for the life of the daemon. */
-  retain(ids: ReadonlySet<string>): void {
-    for (const id of this.reports.keys()) {
-      if (!ids.has(id)) this.reports.delete(id);
+  retain(ids: ReadonlySet<string>, coordinatorId = ""): void {
+    this.coordinatorId = coordinatorId;
+    for (const map of [this.reports, this.latest, this.cooldown]) {
+      for (const id of map.keys()) if (!ids.has(id) || id === coordinatorId) map.delete(id);
     }
   }
 }
@@ -402,7 +428,7 @@ export async function loadFleet(
     warnings.push(`The backlog could not be read: ${describe(error)}`);
     return [];
   });
-  const [homeReady, backlog, crewAgents, projects, suggestions, coordinator, agentTools, charter, watches] = await Promise.all([
+  const [homeReady, backlog, foundCrew, projects, suggestions, coordinator, agentTools, charter, watches] = await Promise.all([
     isHomeReady(home),
     backlogRead,
     backlogRead.then((items) => listCrew(paseo, hosts, namedCrew(items, config.coordinatorAgentId), locations, warnings)),
@@ -426,7 +452,9 @@ export async function loadFleet(
     }),
   ]);
 
-  reports.retain(new Set(crewAgents.map(({ agent }) => agent.id)));
+  const coordinatorId = config.coordinatorAgentId.trim();
+  const crewAgents = foundCrew.filter(({ agent }) => agent.id !== coordinatorId && agent.labels[CREW_LABELS.role] !== CREW_LABELS.coordinatorRole);
+  reports.retain(new Set(crewAgents.map(({ agent }) => agent.id)), coordinatorId);
   const crew = await Promise.all(
     crewAgents.map(async ({ agent, host }) => ({
       agent: summarizeAgent(agent, host),

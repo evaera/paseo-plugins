@@ -228,6 +228,9 @@ export const WatchSummarySchema = z.object({
 export type WatchSummary = z.infer<typeof WatchSummarySchema>;
 
 export const FleetSchema = z.object({
+  /** A refresh failed; the contents are the last successful snapshot. */
+  stale: z.boolean().optional(),
+  staleReason: z.string().optional(),
   home: z.string(),
   /** False until the first launch has written the charter and records. */
   homeReady: z.boolean(),
@@ -261,6 +264,10 @@ export const FleetSchema = z.object({
   warnings: z.array(z.string()),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
+
+export function staleFleet(fleet: Fleet, error: unknown): Fleet {
+  return { ...fleet, stale: true, staleReason: error instanceof Error ? error.message : String(error) };
+}
 
 // ---------------------------------------------------------------------------
 // The daemon's own file: what handlers act on

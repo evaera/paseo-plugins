@@ -29,6 +29,7 @@ import { BoardTasksContext } from "./board-tasks";
 import { LocalHostContext } from "./local-host";
 import type { CoordinatorAsk } from "./card-answer";
 import { FLEET_QUERY_KEY, useFleet } from "./fleet";
+import { fleetWaitMessage, STALE_FLEET_MESSAGE } from "./fleet-query";
 import { useCoordinatorSender } from "./coordinator-send";
 import { groupCards } from "./format";
 import { IconButton, errorText } from "./ui";
@@ -127,7 +128,7 @@ function PanelBody({
   }
 
   let summary: string;
-  if (data === null) summary = fleet.error === null ? "Loading…" : errorText(fleet.error);
+  if (data === null) summary = fleetWaitMessage(fleet.failureCount);
   else if (isCoordinator) {
     const groups = groupCards(data.cards);
     summary = `This is Mission Control. ${groups.get("working")?.length ?? 0} working, ${groups.get("blocked")?.length ?? 0} blocked, ${groups.get("queued")?.length ?? 0} queued.`;
@@ -138,6 +139,7 @@ function PanelBody({
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} automaticallyAdjustKeyboardInsets>
       <Text style={styles.title}>Mission Control</Text>
       <Text style={styles.muted}>{summary}</Text>
+      {data?.stale ? <Text style={[styles.muted, { color: theme.colors.statusWarning }]}>{STALE_FLEET_MESSAGE}</Text> : null}
       {/* The whole board's tasks, so a card can name its blocker; a panel has no board to open one on. */}
       <BoardTasksContext.Provider value={{ cards: data?.cards ?? [], open: null }}>
         {cards.map((card) => (

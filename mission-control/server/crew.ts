@@ -15,6 +15,7 @@ import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 import { CREW_LABELS, type MissionControlConfig } from "../shared/fleet";
 import { stopAgent } from "./cli";
 import { closingText, fetchLiveAgent, resolveCoordinator } from "./fleet";
+import { timelineTails } from "./timeline-tails";
 import type { PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 import { askCoordinator } from "./coordinator";
 import { sendWithoutInterrupting } from "./send";
@@ -29,6 +30,7 @@ const MAX_RELAYED_CHARS = 4000;
  * names, which count as crew even without the label.
  */
 export interface CrewTarget {
+  coordinatorAgentId?: string;
   api: PaseoApi;
   serverId: string | null;
   named: ReadonlySet<string>;
@@ -38,6 +40,9 @@ export interface CrewTarget {
 async function requireCrew(target: CrewTarget, agentId: string): Promise<PaseoAgent> {
   const agent = await fetchLiveAgent(target.api, agentId);
   if (agent === null) throw new Error(`Paseo has no live agent ${agentId}.`);
+  if (agentId === target.coordinatorAgentId || agent.labels[CREW_LABELS.role] === CREW_LABELS.coordinatorRole) {
+    throw new Error("Mission Control is not a crewmate.");
+  }
   if (agent.labels[CREW_LABELS.role] !== CREW_LABELS.crewRole && !target.named.has(agentId)) {
     throw new Error(`${agent.title ?? agentId} is not one of the crew.`);
   }
@@ -111,7 +116,8 @@ async function relayRemoteSteer(target: CrewTarget, agent: PaseoAgent, text: str
   try {
     const handle = target.api.agents.ref(agent.id);
     await handle.waitForFinish(STEER_TTL_MS);
-    const page = await handle.timeline.refetch({ direction: "tail", limit: 30, projection: "projected" });
+    const page = await timelineTails.read(target.api, { agentId: agent.id, source: "remote-steer-relay" });
+    if (page === null) return;
     await relay(agent, [text], closingText(page.entries.map((entry) => entry.item)));
   } catch (error) {
     console.error(`[mission-control] could not tell Mission Control about the user's words to ${agent.id}:`, error);
@@ -219,10 +225,12 @@ export function registerSteerRelay(
     if (event.outcome.kind === "canceled" || !steers.has(event.agent.id)) return;
     // The hook's own `timeline` is always empty on current Paseo, so the turn is read back from the daemon.
     let items: TimelineItem[];
+    let config: MissionControlConfig;
     try {
-      const page = await paseo.agents
-        .ref(event.agent.id)
-        .timeline.refetch({ direction: "tail", limit: 30, projection: "projected" });
+      config = await readConfig();
+      if (event.agent.id === config.coordinatorAgentId.trim()) return;
+      const page = await timelineTails.read(paseo, { agentId: event.agent.id, source: "local-steer-relay" });
+      if (page === null) return;
       items = page.entries.map((entry) => entry.item);
     } catch (error) {
       console.error(`[mission-control] could not read the turn of ${event.agent.id}:`, error);
@@ -232,7 +240,7 @@ export function registerSteerRelay(
     const user = steers.take(event.agent.id, userMessages);
     if (user === null) return;
     try {
-      const coordinator = await resolveCoordinator(paseo, await readConfig());
+      const coordinator = await resolveCoordinator(paseo, config);
       if (coordinator.agent === null) return;
       await sendWithoutInterrupting(
         paseo,

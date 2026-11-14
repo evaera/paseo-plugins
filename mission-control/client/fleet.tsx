@@ -63,10 +63,11 @@ import { LayoutTierContext, TOUCH_TARGET, besideBoardWidth, layoutTier } from ".
 import { useTouchTargets } from "./touch-targets";
 import { boardAttention } from "./screen";
 import { SafeEdges } from "./edges";
+import { createFleetQuery, FLEET_QUERY_KEY, fleetWaitMessage, STALE_FLEET_MESSAGE } from "./fleet-query";
 
-export const FLEET_QUERY_KEY = ["mission-control", "fleet"] as const;
+export { FLEET_QUERY_KEY } from "./fleet-query";
 
-let cachedFleet: Fleet | null = null;
+const fleetQuery = createFleetQuery();
 type Tab = "chat" | "board" | "files";
 let cachedTab: Tab = "chat";
 /** What the right-hand pane shows on a wide layout: the crew, or the home's files. */
@@ -126,17 +127,7 @@ const SAVE_DELAY_MS = 400;
  */
 export function useFleet(pollSeconds: number) {
   const load = useRpc(loadFleet);
-  return useQuery({
-    queryKey: FLEET_QUERY_KEY,
-    queryFn: function () {
-      return load({}).then((fleet) => {
-        cachedFleet = fleet;
-        return fleet;
-      });
-    },
-    refetchInterval: pollSeconds * 1000,
-    ...(cachedFleet === null ? {} : { placeholderData: cachedFleet }),
-  });
+  return useQuery(fleetQuery(() => load({}), pollSeconds));
 }
 
 export function FleetSurface(props: PluginScreenProps) {
@@ -546,6 +537,9 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   }
 
   const banners: ReactNode[] = [];
+  if (data?.stale) {
+    banners.push(<Banner key="stale" theme={theme} tone="warning" text={STALE_FLEET_MESSAGE} />);
+  }
   if (fleet.error !== null) {
     banners.push(<Banner key="error" theme={theme} tone="danger" text={errorText(fleet.error)} />);
   }
@@ -739,7 +733,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       <>
         {header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
-        <Text style={styles.loading}>{fleet.error === null ? "Loading the crew…" : ""}</Text>
+        <Text style={styles.loading}>{fleetWaitMessage(fleet.failureCount)}</Text>
       </>,
     );
   }
