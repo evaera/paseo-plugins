@@ -1,8 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as send from "./send";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { CREW_LABELS } from "../shared/fleet";
 import { readMissionControlConfig, resolveHome, updateMissionControlConfig } from "./config";
@@ -15,13 +14,11 @@ let paseoHome = "";
 const previousHome = process.env.PASEO_HOME;
 
 beforeEach(async () => {
-  vi.spyOn(send, "sendCoordinatorMessage").mockImplementation((api, id, text, extras) => send.sendWithoutInterrupting(api, id, text, extras));
   paseoHome = await mkdtemp(join(tmpdir(), "mission-control-coordinator-"));
   process.env.PASEO_HOME = paseoHome;
 });
 
 afterEach(async () => {
-  vi.restoreAllMocks();
   if (previousHome === undefined) delete process.env.PASEO_HOME;
   else process.env.PASEO_HOME = previousHome;
   await rm(paseoHome, { recursive: true, force: true });
@@ -198,7 +195,7 @@ describe("askCoordinator", () => {
     await updateMissionControlConfig({ coordinatorAgentId: "old-coordinator" });
     const { paseo, sent } = fakePaseo({ "old-coordinator": { ...oldCoordinator, status: "idle" } });
     await expect(askCoordinator(paseo, { text: "  fix the login  " })).resolves.toBe("old-coordinator");
-    expect(sent).toEqual([{ agentId: "old-coordinator", text: "fix the login", options: { activeTurnBehavior: "steer", messageId: expect.stringMatching(/^mission-control-message-/) } }]);
+    expect(sent).toEqual([{ agentId: "old-coordinator", text: "fix the login", options: { activeTurnBehavior: "steer" } }]);
   });
 
   it("sends images as images and files as Paseo uploads, the way Paseo's composer does", async () => {

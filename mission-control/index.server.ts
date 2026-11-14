@@ -1,6 +1,4 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { randomUUID } from "node:crypto";
-import { coordinatorDeliveries } from "./server/coordinator-deliveries";
 
 import { readMissionControlConfig, resolveHome, updateMissionControlConfig } from "./server/config";
 import { nameHomeOnce } from "./server/home-name";
@@ -46,7 +44,6 @@ import {
   acknowledgeCharter as acknowledgeCharterRpc,
   adoptCoordinator as adoptCoordinatorRpc,
   askCoordinator as askCoordinatorRpc,
-  coordinatorDelivery,
   chatImages as chatImagesRpc,
   askCoordinatorCommand as askCoordinatorCommandRpc,
   compactCoordinator as compactCoordinatorRpc,
@@ -149,14 +146,11 @@ export default function contribute(server: PluginServerContext) {
   metrics.handle(restartCoordinatorRpc, (_input, { paseo }) => restartCoordinator(paseo));
   metrics.handle(compactCoordinatorRpc, async (_input, { paseo }) => ({ agentId: await compactCoordinator(paseo) }));
   metrics.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
-  metrics.handle(askCoordinatorRpc, (message, { paseo }) => {
-    const messageId = message.messageId ?? `mission-control-${(message.images?.length ?? 0) > 0 ? "images" : "message"}-${randomUUID()}`;
-    return coordinatorDeliveries.submit(messageId, message, () => askCoordinator(paseo, { ...message, messageId }));
-  });
-  metrics.handle(coordinatorDelivery, ({ messageId }) => coordinatorDeliveries.status(messageId));
+  metrics.handle(askCoordinatorRpc, async (message, { paseo }) => ({ agentId: await askCoordinator(paseo, message) }));
   metrics.handle(chatImagesRpc, async ({ messageId }) => ({ sources: await chatImageSources(await home(), messageId) }));
-  metrics.handle(askCoordinatorCommandRpc, ({ command, args, messageId = `mission-control-message-${randomUUID()}` }, { paseo }) =>
-    coordinatorDeliveries.submit(messageId, { command, args }, async () => askCoordinator(paseo, { text: await commandText(command, args), messageId })));
+  metrics.handle(askCoordinatorCommandRpc, async ({ command, args }, { paseo }) => ({
+    agentId: await askCoordinator(paseo, { text: await commandText(command, args) }),
+  }));
   metrics.handle(markCoordinatorSeenRpc, (_input, { paseo }) => markCoordinatorSeen(paseo));
   metrics.handle(toggleWatch, async ({ name, enabled }, { paseo }) => {
     watches.remember(paseo);

@@ -5,9 +5,7 @@ import { AgentPanel, WorkspacePanel } from "./client/panels";
 import { FLEET_SCREEN_ID } from "./client/screen";
 import { SettingsScreen } from "./client/settings-screen";
 import { FleetSidebarItem } from "./client/sidebar";
-import { askCoordinator, askCoordinatorCommand, coordinatorDelivery, type CoordinatorCommand } from "./shared/fleet";
-import { newCoordinatorMessageId } from "./shared/attachments";
-import { waitForCoordinatorDelivery } from "./client/coordinator-delivery";
+import { askCoordinator, askCoordinatorCommand, type CoordinatorCommand } from "./shared/fleet";
 
 type CommandRpc = PluginWorkspaceCommandContext["rpc"];
 
@@ -19,14 +17,12 @@ type CommandRpc = PluginWorkspaceCommandContext["rpc"];
  */
 async function tellMissionControl(rpc: CommandRpc, text: string): Promise<void> {
   if (text.trim() === "") throw new Error("Say something to Mission Control: /mc <message>");
-  const messageId = newCoordinatorMessageId();
-  await waitForCoordinatorDelivery(() => rpc(askCoordinator, { text, messageId }), () => rpc(coordinatorDelivery, { messageId }));
+  await rpc(askCoordinator, { text });
 }
 
 /** Status or Catch up, worded by the daemon from its templates; `args` is what followed the command. */
 async function askMissionControl(rpc: CommandRpc, command: CoordinatorCommand, args: string): Promise<void> {
-  const messageId = newCoordinatorMessageId();
-  await waitForCoordinatorDelivery(() => rpc(askCoordinatorCommand, { command, args, messageId }), () => rpc(coordinatorDelivery, { messageId }));
+  await rpc(askCoordinatorCommand, { command, args });
 }
 
 export default function contribute(client: PluginClientContext) {
@@ -74,7 +70,7 @@ export default function contribute(client: PluginClientContext) {
     context: "global",
     onSelect({ rpc, openScreen }) {
       openScreen({ screenId: FLEET_SCREEN_ID });
-      void askMissionControl(rpc, "status", "").catch((caught: unknown) => {
+      void rpc(askCoordinatorCommand, { command: "status", args: "" }).catch((caught: unknown) => {
         console.warn("[mission-control] status could not be asked for:", caught);
       });
     },

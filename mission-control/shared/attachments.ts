@@ -73,8 +73,6 @@ export type FilePart = z.infer<typeof FilePartSchema>;
 /** The user's message: words, attachments, or both — never neither. */
 export const UserMessageSchema = z
   .object({
-    /** Stable across submission and receipt checks. Optional for older callers. */
-    messageId: z.string().regex(/^[a-z0-9-]{1,128}$/).optional(),
     text: z.string(),
     images: z.array(ImagePartSchema).max(MAX_ATTACHMENTS).optional(),
     files: z.array(FilePartSchema).max(MAX_ATTACHMENTS).optional(),
@@ -93,15 +91,6 @@ export const UserMessageSchema = z
     { message: "Nothing to send: the message has no words and no attachments." },
   );
 export type UserMessage = z.infer<typeof UserMessageSchema>;
-
-/** A UUID-shaped identity also available on native clients without browser crypto. */
-export function newCoordinatorMessageId(images = false): string {
-  const uuid = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (letter) => {
-    const value = Math.floor(Math.random() * 16);
-    return (letter === "x" ? value : (value & 3) | 8).toString(16);
-  });
-  return `${images ? IMAGE_MESSAGE_ID_PREFIX : "mission-control-message-"}${uuid}`;
-}
 
 /** Paseo's list of raster image types (`attachments/file-types.ts`), by extension. */
 const RASTER_IMAGE_BY_EXTENSION: Record<string, string> = {

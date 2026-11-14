@@ -12,8 +12,6 @@
  * is never worse off for a message from the board than for one from Paseo.
  */
 import type { PaseoApi } from "./host-types";
-import { sendSessionRequest } from "./daemon-session";
-import { UnconfirmedDelivery } from "./coordinator-deliveries";
 
 type SendOptions = NonNullable<Parameters<ReturnType<PaseoApi["agents"]["ref"]>["send"]>[1]>;
 
@@ -30,26 +28,4 @@ export async function sendWithoutInterrupting(
   extras: SendExtras = {},
 ): Promise<void> {
   await paseo.agents.ref(agentId).send(text, { ...extras, activeTurnBehavior: "steer" });
-}
-
-/** The SDK drops acknowledgments after 60s. Keep listening for a late coordinator acknowledgment. */
-export async function sendCoordinatorMessage(paseo: PaseoApi, agentId: string, text: string, extras: SendExtras & { messageId: string }): Promise<void> {
-  const started = Date.now();
-  const fields = { event: "plugin_coordinator_send", agentId, messageId: extras.messageId };
-  console.log(JSON.stringify({ ...fields, phase: "start" }));
-  try {
-    if (process.send === undefined) {
-      await sendWithoutInterrupting(paseo, agentId, text, extras);
-      console.log(JSON.stringify({ ...fields, phase: "accepted", durationMs: Date.now() - started }));
-      return;
-    }
-    const reply = await sendSessionRequest({ type: "send_agent_message_request", agentId, text,
-      ...extras, activeTurnBehavior: "steer" }, "send_agent_message_response", 15 * 60_000);
-    if (reply.accepted !== true) throw new Error(typeof reply.error === "string" ? reply.error : "The daemon did not confirm delivery.");
-    console.log(JSON.stringify({ ...fields, phase: "accepted", durationMs: Date.now() - started }));
-  } catch (error) {
-    console.log(JSON.stringify({ ...fields, phase: "unknown", durationMs: Date.now() - started }));
-    // Even a rejection can follow provider acceptance. Do not infer non-delivery from an error.
-    throw new UnconfirmedDelivery(error instanceof Error ? error.message : String(error));
-  }
 }

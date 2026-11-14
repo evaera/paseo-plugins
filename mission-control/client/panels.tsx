@@ -10,6 +10,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import {
   useAgent,
+  useRpc,
   useSettings,
   useWorkspace,
   type PluginAgentPanelProps,
@@ -20,7 +21,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 
-import { type FleetCard } from "../shared/fleet";
+import { askCoordinator, type FleetCard } from "../shared/fleet";
 import { displaySettings } from "../shared/settings";
 import { userMessage } from "./attachments";
 import { CardSheet } from "./card";
@@ -31,7 +32,7 @@ import { FLEET_QUERY_KEY, useFleet } from "./fleet";
 import { fleetWaitMessage, STALE_FLEET_MESSAGE } from "./fleet-query";
 import { useCoordinatorSender } from "./coordinator-send";
 import { groupCards } from "./format";
-import { IconButton } from "./ui";
+import { IconButton, errorText } from "./ui";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 type Navigation = PluginWorkspacePanelProps["navigation"];
@@ -54,14 +55,15 @@ function PanelBody({
   const display = useSettings(displaySettings);
   const fleet = useFleet(display.status === "ready" ? display.values.pollSeconds : 5);
   const queryClient = useQueryClient();
+  const ask = useRpc(askCoordinator);
   const toast = useToast();
   const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
   /**
    * The board's sender, so a card's action or answer here goes out exactly as it does on the board —
    * with a toast once it has, since the chat that would show it go out is not in view.
    */
   const coordinatorSender = useCoordinatorSender(fleet.data?.coordinator?.id ?? "");
-  const sending = coordinatorSender.sending;
 
   const data = fleet.data ?? null;
   const isCoordinator = data?.coordinator !== null && data?.coordinator !== undefined && data.coordinator.id === match.agentId;
@@ -115,10 +117,14 @@ function PanelBody({
   function sendNote(): void {
     const text = note.trim();
     if (text === "" || sending) return;
-    coordinatorSender.send({ text: `${text}\n\n(Sent from ${place}.)` }, undefined, () => {
-      setNote((current) => current.trim() === text ? "" : current);
-      toast.show("Sent to Mission Control.", { variant: "success" });
-    });
+    setSending(true);
+    ask({ text: `${text}\n\n(Sent from ${place}.)` })
+      .then(() => {
+        setNote("");
+        toast.show("Sent to Mission Control.", { variant: "success" });
+      })
+      .catch((caught: unknown) => toast.error(errorText(caught)))
+      .finally(() => setSending(false));
   }
 
   let summary: string;

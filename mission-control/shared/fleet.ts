@@ -512,25 +512,10 @@ export const compactCoordinator = defineRpc({
 });
 
 /** Delivers the user's words, and anything attached to them, to Mission Control. */
-export const CoordinatorDeliverySchema = z.object({
-  messageId: z.string(),
-  state: z.enum(["sending", "sent", "unknown", "failed", "missing"]),
-  agentId: z.string().nullable(),
-  error: z.string().optional(),
-});
-export type CoordinatorDelivery = z.infer<typeof CoordinatorDeliverySchema>;
-
 export const askCoordinator = defineRpc({
   name: "mission-control.coordinator.ask",
   input: UserMessageSchema,
-  output: CoordinatorDeliverySchema,
-});
-
-/** Read-only confirmation. This never submits or retries a message. */
-export const coordinatorDelivery = defineRpc({
-  name: "mission-control.coordinator.delivery",
-  input: z.object({ messageId: z.string().regex(/^[a-z0-9-]{1,128}$/) }),
-  output: CoordinatorDeliverySchema,
+  output: z.object({ agentId: z.string() }),
 });
 
 /**
@@ -553,8 +538,8 @@ export type CoordinatorCommand = z.infer<typeof CoordinatorCommandSchema>;
  */
 export const askCoordinatorCommand = defineRpc({
   name: "mission-control.coordinator.command",
-  input: z.object({ command: CoordinatorCommandSchema, args: z.string().default(""), messageId: z.string().regex(/^[a-z0-9-]{1,128}$/).optional() }),
-  output: CoordinatorDeliverySchema,
+  input: z.object({ command: CoordinatorCommandSchema, args: z.string().default("") }),
+  output: z.object({ agentId: z.string() }),
 });
 
 // ---------------------------------------------------------------------------

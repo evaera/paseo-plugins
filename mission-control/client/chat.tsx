@@ -683,7 +683,7 @@ export function CoordinatorChat({
               />
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={sending ? "Sending..." : "Send"}
+                accessibilityLabel="Send"
                 accessibilityState={{ disabled: sending || !hasContent(draft, attachments) }}
                 disabled={sending || !hasContent(draft, attachments)}
                 onPress={sendDraft}
@@ -696,7 +696,6 @@ export function CoordinatorChat({
                 />
               </Pressable>
             </View>
-            {sending ? <Text style={{ color: theme.colors.foregroundMuted }}>Sending... Waiting for delivery confirmation.</Text> : null}
           </View>
         </View>
       </ComposerFrame>

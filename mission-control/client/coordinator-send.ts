@@ -14,10 +14,9 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useSyncExternalStore } from "react";
 
-import { newCoordinatorMessageId, type UserMessage } from "../shared/attachments";
-import { askCoordinator, askCoordinatorCommand, coordinatorDelivery, type CoordinatorCommand, type CoordinatorDelivery } from "../shared/fleet";
+import type { UserMessage } from "../shared/attachments";
+import { askCoordinator, askCoordinatorCommand, type CoordinatorCommand } from "../shared/fleet";
 import { errorText } from "./format";
-import { waitForCoordinatorDelivery } from "./coordinator-delivery";
 
 /** One task at a time; a second started while the first runs is refused. */
 export interface SendGate {
@@ -55,13 +54,9 @@ export function createSendGate(): SendGate {
   };
 }
 
-interface CoordinatorGate extends SendGate { read?: (messageId: string) => Promise<CoordinatorDelivery> }
-// Survive a host reconnect, like the draft store. The next hook lends the current RPC connection.
-const SLOT = Symbol.for("paseo.mission-control.sends");
-const gates: Map<string, CoordinatorGate> = Reflect.get(globalThis, SLOT) ?? new Map();
-Reflect.set(globalThis, SLOT, gates);
+const gates = new Map<string, SendGate>();
 
-function gateFor(coordinatorId: string): CoordinatorGate {
+function gateFor(coordinatorId: string): SendGate {
   let gate = gates.get(coordinatorId);
   if (gate === undefined) {
     gate = createSendGate();
@@ -87,10 +82,8 @@ export interface CoordinatorSender {
 export function useCoordinatorSender(coordinatorId: string): CoordinatorSender {
   const ask = useRpc(askCoordinator);
   const askCommand = useRpc(askCoordinatorCommand);
-  const read = useRpc(coordinatorDelivery);
   const toast = useToast();
   const gate = gateFor(coordinatorId);
-  gate.read = (messageId) => read({ messageId });
   const sending = useSyncExternalStore(gate.subscribe, gate.busy);
 
   function deliver(task: () => Promise<unknown>, onFailure?: () => void, onSent?: () => void): boolean {
@@ -108,13 +101,7 @@ export function useCoordinatorSender(coordinatorId: string): CoordinatorSender {
 
   return {
     sending,
-    send: (message, onFailure, onSent) => {
-      const messageId = newCoordinatorMessageId((message.images?.length ?? 0) > 0);
-      return deliver(() => waitForCoordinatorDelivery(() => ask({ ...message, messageId }), () => gate.read!(messageId)), onFailure, onSent);
-    },
-    command: (command) => {
-      const messageId = newCoordinatorMessageId();
-      return deliver(() => waitForCoordinatorDelivery(() => askCommand({ command, args: "", messageId }), () => gate.read!(messageId)));
-    },
+    send: (message, onFailure, onSent) => deliver(() => ask(message), onFailure, onSent),
+    command: (command) => deliver(() => askCommand({ command, args: "" })),
   };
 }
