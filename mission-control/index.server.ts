@@ -76,8 +76,10 @@ import { findHomeFiles, listHomeFiles, readHomeFile, readImage, revealFile, writ
 import { startWatches } from "./server/watch-service";
 import { displaySettings } from "./shared/settings";
 import { readProjects } from "./server/daemon-reads";
+import { measureRpcHandlers } from "./server/rpc-metrics";
 
 export default function contribute(server: PluginServerContext) {
+  const metrics = measureRpcHandlers(server, "mission-control");
   const reports = new ReportCache();
   const steers = new UserSteers();
   // The connected hosts crewmates can run on; see server/hosts.ts.
@@ -86,11 +88,11 @@ export default function contribute(server: PluginServerContext) {
   // The scripts in the home's watches/ folder, run on their schedules; see server/watches.ts.
   const watches = startWatches(server, readMissionControlConfig);
 
-  server.handle(readConfig, async () => {
+  metrics.handle(readConfig, async () => {
     const config = await readMissionControlConfig();
     return { config, resolvedHome: resolveHome(config) };
   });
-  server.handle(writeConfig, async (patch) => {
+  metrics.handle(writeConfig, async (patch) => {
     const config = await updateMissionControlConfig(patch);
     const home = resolveHome(config);
     // The charter names the crew's model, so a saved change reaches the file
@@ -99,7 +101,7 @@ export default function contribute(server: PluginServerContext) {
     return { config, resolvedHome: home };
   });
 
-  server.handle(loadFleetRpc, async (_input, { paseo }) => {
+  metrics.handle(loadFleetRpc, async (_input, { paseo }) => {
     watches.remember(paseo);
     const fleet = await loadFleet(
       paseo,
@@ -114,24 +116,24 @@ export default function contribute(server: PluginServerContext) {
     if (workspaceId !== null && fleet.coordinatorInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
     return fleet;
   });
-  server.handle(enableAgentTools, async (_input, { paseo }) => {
+  metrics.handle(enableAgentTools, async (_input, { paseo }) => {
     await paseo.config.patch({ mcp: { injectIntoAgents: true } });
     return { agentTools: (await readAgentTools(paseo)) === true };
   });
 
-  server.handle(launchCoordinatorRpc, (input, { paseo }) => launchCoordinator(paseo, input));
-  server.handle(adoptCoordinatorRpc, async ({ agentId }, { paseo }) => ({ config: await adoptCoordinator(paseo, agentId) }));
-  server.handle(releaseCoordinatorRpc, async () => ({ config: await releaseCoordinator() }));
-  server.handle(restartCoordinatorRpc, (_input, { paseo }) => restartCoordinator(paseo));
-  server.handle(compactCoordinatorRpc, async (_input, { paseo }) => ({ agentId: await compactCoordinator(paseo) }));
-  server.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
-  server.handle(askCoordinatorRpc, async (message, { paseo }) => ({ agentId: await askCoordinator(paseo, message) }));
-  server.handle(chatImagesRpc, async ({ messageId }) => ({ sources: await chatImageSources(await home(), messageId) }));
-  server.handle(askCoordinatorCommandRpc, async ({ command, args }, { paseo }) => ({
+  metrics.handle(launchCoordinatorRpc, (input, { paseo }) => launchCoordinator(paseo, input));
+  metrics.handle(adoptCoordinatorRpc, async ({ agentId }, { paseo }) => ({ config: await adoptCoordinator(paseo, agentId) }));
+  metrics.handle(releaseCoordinatorRpc, async () => ({ config: await releaseCoordinator() }));
+  metrics.handle(restartCoordinatorRpc, (_input, { paseo }) => restartCoordinator(paseo));
+  metrics.handle(compactCoordinatorRpc, async (_input, { paseo }) => ({ agentId: await compactCoordinator(paseo) }));
+  metrics.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
+  metrics.handle(askCoordinatorRpc, async (message, { paseo }) => ({ agentId: await askCoordinator(paseo, message) }));
+  metrics.handle(chatImagesRpc, async ({ messageId }) => ({ sources: await chatImageSources(await home(), messageId) }));
+  metrics.handle(askCoordinatorCommandRpc, async ({ command, args }, { paseo }) => ({
     agentId: await askCoordinator(paseo, { text: await commandText(command, args) }),
   }));
-  server.handle(markCoordinatorSeenRpc, (_input, { paseo }) => markCoordinatorSeen(paseo));
-  server.handle(toggleWatch, async ({ name, enabled }, { paseo }) => {
+  metrics.handle(markCoordinatorSeenRpc, (_input, { paseo }) => markCoordinatorSeen(paseo));
+  metrics.handle(toggleWatch, async ({ name, enabled }, { paseo }) => {
     watches.remember(paseo);
     await watches.toggle(name, enabled);
     return {};
@@ -144,22 +146,22 @@ export default function contribute(server: PluginServerContext) {
     const named = new Set(namedCrew(backlog, config.coordinatorAgentId).keys());
     return { api: await hosts.api(paseo, serverId), serverId, named };
   }
-  server.handle(steerCrewRpc, async ({ agentId, serverId, text }, { paseo }) => {
+  metrics.handle(steerCrewRpc, async ({ agentId, serverId, text }, { paseo }) => {
     await steerCrew(await crewTarget(paseo, serverId), steers, agentId, text, async (agent, said, answer) => {
       const coordinator = await resolveCoordinator(paseo, await readMissionControlConfig());
       if (coordinator.agent !== null) await sendWithoutInterrupting(paseo, coordinator.agent.id, await relayText(agent, said, answer));
     });
     return {};
   });
-  server.handle(interruptCrewRpc, async ({ agentId, serverId }, { paseo }) => {
+  metrics.handle(interruptCrewRpc, async ({ agentId, serverId }, { paseo }) => {
     await interruptCrew(await crewTarget(paseo, serverId), agentId);
     return {};
   });
-  server.handle(exitCrewRpc, async ({ agentId, serverId }, { paseo }) => {
+  metrics.handle(exitCrewRpc, async ({ agentId, serverId }, { paseo }) => {
     await exitCrew(await crewTarget(paseo, serverId), agentId);
     return {};
   });
-  server.handle(relaunchCrewRpc, async ({ agentId, serverId, note }, { paseo }) => ({
+  metrics.handle(relaunchCrewRpc, async ({ agentId, serverId, note }, { paseo }) => ({
     agentId: await relaunchCrew(paseo, await crewTarget(paseo, serverId), agentId, note),
   }));
 
@@ -167,11 +169,11 @@ export default function contribute(server: PluginServerContext) {
   async function home(): Promise<string> {
     return requireHome(resolveHome(await readMissionControlConfig()));
   }
-  server.handle(listHomeFiles, async ({ path }) => {
+  metrics.handle(listHomeFiles, async ({ path }) => {
     const root = await home();
     return { home: root, ...(await listDirectory(root, path)) };
   });
-  server.handle(readHomeFile, async ({ path }) => readTextFile(await home(), path));
+  metrics.handle(readHomeFile, async ({ path }) => readTextFile(await home(), path));
   // The project roots a reply's links and images may reach besides the home; see server/local-files.ts.
   // A listing that fails leaves the home alone reachable rather than failing the chat.
   async function projectRoots(paseo: PaseoApi): Promise<string[]> {
@@ -182,54 +184,54 @@ export default function contribute(server: PluginServerContext) {
       return [];
     }
   }
-  server.handle(findHomeFiles, async ({ paths }, { paseo }) => findLinkedFiles(await home(), await projectRoots(paseo), paths));
-  server.handle(readImage, async ({ src }, { paseo }) => readLocalImage(await home(), await projectRoots(paseo), src));
-  server.handle(videoChunk, async ({ src, offset }, { paseo }) => readVideoChunk(await home(), await projectRoots(paseo), src, offset));
-  server.handle(revealFile, async ({ path }, { paseo }) => {
+  metrics.handle(findHomeFiles, async ({ paths }, { paseo }) => findLinkedFiles(await home(), await projectRoots(paseo), paths));
+  metrics.handle(readImage, async ({ src }, { paseo }) => readLocalImage(await home(), await projectRoots(paseo), src));
+  metrics.handle(videoChunk, async ({ src, offset }, { paseo }) => readVideoChunk(await home(), await projectRoots(paseo), src, offset));
+  metrics.handle(revealFile, async ({ path }, { paseo }) => {
     await revealLocalFile(await home(), await projectRoots(paseo), path);
     return {};
   });
-  server.handle(writeHomeFile, async (input) => {
+  metrics.handle(writeHomeFile, async (input) => {
     const written = await writeTextFile(await home(), input);
     // The charter's source, saved in the panel, reaches AGENTS.md at once rather than at the next reload.
     if (written.path === CHARTER_FILE) await refreshCharter();
     return written;
   });
 
-  // The chat's [[run: …]] embeds; see server/runs.ts.
+  // The chat's [[run: ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦]] embeds; see server/runs.ts.
   const runs = new Runs(home);
-  server.handle(startRun, ({ project, command }, { paseo }) => runs.start(paseo, project, command));
-  server.handle(runStatus, ({ runId }, { paseo }) => runs.status(paseo, runId));
-  server.handle(stopRun, async ({ runId }, { paseo }) => {
+  metrics.handle(startRun, ({ project, command }, { paseo }) => runs.start(paseo, project, command));
+  metrics.handle(runStatus, ({ runId }, { paseo }) => runs.status(paseo, runId));
+  metrics.handle(stopRun, async ({ runId }, { paseo }) => {
     await runs.stop(paseo, runId);
     return {};
   });
 
-  server.handle(openInDebrief, async (input) => {
+  metrics.handle(openInDebrief, async (input) => {
     await requestDebriefOpen(input);
     return {};
   });
-  server.handle(renameTaskRpc, async ({ taskId, title }) => {
+  metrics.handle(renameTaskRpc, async ({ taskId, title }) => {
     await renameTask(await home(), taskId, title);
     return {};
   });
-  server.handle(readTaskNotes, async ({ taskId }) => ({ text: await readNotes(await home(), taskId) }));
-  server.handle(writeTaskNotes, async ({ taskId, text }) => {
+  metrics.handle(readTaskNotes, async ({ taskId }) => ({ text: await readNotes(await home(), taskId) }));
+  metrics.handle(writeTaskNotes, async ({ taskId, text }) => {
     await writeNotes(await home(), taskId, text);
     return {};
   });
-  server.handle(saveBoardOrder, async ({ columns }) => {
+  metrics.handle(saveBoardOrder, async ({ columns }) => {
     await writeBoardOrder(await home(), columns);
     return {};
   });
-  server.handle(removeSuggestionRpc, async (suggestion) => ({
+  metrics.handle(removeSuggestionRpc, async (suggestion) => ({
     suggestions: await removeSuggestion(await home(), suggestion),
   }));
 
-  server.handle(compareCharterRpc, async () => ({
+  metrics.handle(compareCharterRpc, async () => ({
     path: (await writeNewCharter(await home())) ? NEW_CHARTER_FILE : null,
   }));
-  server.handle(acknowledgeCharterRpc, async () => {
+  metrics.handle(acknowledgeCharterRpc, async () => {
     await acknowledgeCharter(await home());
     return {};
   });
@@ -250,6 +252,7 @@ export default function contribute(server: PluginServerContext) {
   });
 
   return () => {
+    metrics.stop();
     unregisterRelay();
     unregisterCrewSeen();
     watches.stop();

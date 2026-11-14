@@ -1,5 +1,8 @@
 // node scripts/measure-daemon-load.mjs <daemon.log> [minutes=15] [end=ISO timestamp]
 // Read only. Logs contain slow requests by client; runtime totals cover every client together.
+// pluginRpcMetricsWindows=0 means per-method telemetry is unavailable, not that no RPCs ran.
+// Per-method counts cover all clients of each plugin. Handler time includes awaited I/O/SDK calls,
+// but excludes daemon scheduling, IPC and wire validation. CPU is for the whole plugin process.
 import { readFileSync } from "node:fs";
 
 const [, , path, minutes = "15", end] = process.argv;
@@ -27,6 +30,33 @@ for (const row of metrics) {
   for (const [type, count] of row.inboundSessionRequestTypesTop ?? []) requestTotals.set(type, (requestTotals.get(type) ?? 0) + count);
 }
 const metricMinutes = metrics.reduce((sum, row) => sum + row.windowMs, 0) / 60_000;
+const rpcWindows = selected.flatMap((row) => {
+  if (row.msg !== "Plugin output" || typeof row.message !== "string") return [];
+  try {
+    const entry = JSON.parse(row.message);
+    return entry.event === "plugin_rpc_metrics" ? [entry] : [];
+  } catch { return []; }
+});
+const rpcMethods = new Map();
+const processes = new Map();
+for (const window of rpcWindows) {
+  const processKey = `${window.plugin}/${window.pid}`;
+  const cpu = processes.get(processKey) ?? { plugin: window.plugin, pid: window.pid, windowMs: 0, processCpuMs: 0 };
+  cpu.windowMs += window.windowMs;
+  cpu.processCpuMs += window.processCpuMs;
+  processes.set(processKey, cpu);
+  for (const method of window.methods) {
+    const key = `${window.plugin}/${method.method}`;
+    const total = rpcMethods.get(key) ?? { plugin: window.plugin, method: method.method, started: 0, completed: 0, failed: 0, handlerWallMs: 0, handlerMaxMs: 0, inFlight: 0 };
+    total.started += method.started;
+    total.completed += method.completed;
+    total.failed += method.failed;
+    total.handlerWallMs += method.handlerWallMs;
+    total.handlerMaxMs = Math.max(total.handlerMaxMs, method.handlerMaxMs);
+    total.inFlight = method.inFlight;
+    rpcMethods.set(key, total);
+  }
+}
 console.log(JSON.stringify({
   since: new Date(since).toISOString(), until: new Date(until).toISOString(), minutes: Number(minutes),
   slowRequests: [...groups].map(([clientAndType, durations]) => ({
@@ -34,6 +64,13 @@ console.log(JSON.stringify({
     p50Ms: percentile(durations, 0.5), maxMs: Math.max(...durations),
   })).sort((a, b) => b.count - a.count),
   configReadTimeouts: selected.filter((row) => row.msg === "Failed to parse paseo.json; treating workspace as having no scripts" && row.err?.message === "Project config unavailable").length,
+  pluginRpcMetricsWindows: rpcWindows.length,
+  // Handler times exclude IPC, daemon scheduling, and input/output validation. They include awaited I/O/SDK calls.
+  pluginRpcMethods: [...rpcMethods.values()].map((method) => ({ ...method,
+    startedPerMinute: +(method.started / Number(minutes)).toFixed(2),
+    handlerMeanMs: method.completed ? +(method.handlerWallMs / method.completed).toFixed(3) : null,
+  })).sort((a, b) => b.started - a.started),
+  pluginProcesses: [...processes.values()].map((cpu) => ({ ...cpu, cpuFraction: cpu.windowMs ? +(cpu.processCpuMs / cpu.windowMs).toFixed(4) : null })),
   runtimeWindows: metrics.length, runtimeWindowMinutes: +metricMinutes.toFixed(2),
   globalRequestsPerMinute: [...requestTotals].map(([type, count]) => ({ type, count, perMinute: +(count / metricMinutes).toFixed(2) })).sort((a, b) => b.count - a.count),
   eventLoopP99Ms: { median: percentile(metrics.map((row) => row.eventLoopDelay?.p99Ms).filter(Number.isFinite), 0.5), max: Math.max(0, ...metrics.map((row) => row.eventLoopDelay?.p99Ms ?? 0)) },

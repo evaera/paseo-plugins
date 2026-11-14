@@ -40,9 +40,11 @@ import {
 } from "./shared/rpc";
 import { annotatePlan, decidePlan, listPlans, loadPlan, openFilePlan, updatePlanAnnotation } from "./shared/plan";
 import { debriefSettings } from "./shared/settings";
+import { measureRpcHandlers } from "./server/rpc-metrics";
 import { clearStory, loadStory, requestStory } from "./shared/story";
 
 export default function contribute(server: PluginServerContext) {
+  const metrics = measureRpcHandlers(server, "debrief");
   const settings = server.registerSettings(debriefSettings);
   const notes = new Notes();
   const deps = { notes, settings };
@@ -55,86 +57,86 @@ export default function contribute(server: PluginServerContext) {
   const dir = async (paseo: Parameters<typeof resolveWorkspace>[0], workspaceId: string) =>
     (await resolveWorkspace(paseo, workspaceId)).directory;
 
-  server.handle(loadReview, async (input, { paseo }) => {
+  metrics.handle(loadReview, async (input, { paseo }) => {
     void notes.flush(paseo, input.workspaceId).catch(() => 0);
     const loaded = await load(paseo, input);
     void markActive(input.workspaceId).catch(() => {});
     return loaded;
   });
-  server.handle(pollReview, async (input, { paseo }) => ({ fingerprint: await pollFingerprint(paseo, input) }));
+  metrics.handle(pollReview, async (input, { paseo }) => ({ fingerprint: await pollFingerprint(paseo, input) }));
 
-  server.handle(fileContents, async (input, { paseo }) => {
+  metrics.handle(fileContents, async (input, { paseo }) => {
     return compareContents(input.workspaceId, await dir(paseo, input.workspaceId), toCompare(input.scope, input.compare), input.path);
   });
-  server.handle(readFile, async (input, { paseo }) => readAnyFile(await dir(paseo, input.workspaceId), input.path));
-  server.handle(writeFile, async (input, { paseo }) => writeWorkspaceFile(await dir(paseo, input.workspaceId), input));
+  metrics.handle(readFile, async (input, { paseo }) => readAnyFile(await dir(paseo, input.workspaceId), input.path));
+  metrics.handle(writeFile, async (input, { paseo }) => writeWorkspaceFile(await dir(paseo, input.workspaceId), input));
 
-  server.handle(createComment, (input, { paseo }) => handlers.createComment(deps, paseo, input));
-  server.handle(replyToComment, (input, { paseo }) => handlers.replyToComment(deps, paseo, input));
-  server.handle(editComment, (input, { paseo }) => handlers.editComment(deps, paseo, input));
-  server.handle(deleteComment, (input, { paseo }) => handlers.deleteComment(deps, paseo, input));
-  server.handle(resolveComment, (input, { paseo }) => handlers.resolveComment(deps, paseo, input));
-  server.handle(approveReview, (input, { paseo }) => handlers.approveReview(deps, paseo, input));
-  server.handle(setReviewAgent, async ({ workspaceId, agentId }, { paseo }) => {
+  metrics.handle(createComment, (input, { paseo }) => handlers.createComment(deps, paseo, input));
+  metrics.handle(replyToComment, (input, { paseo }) => handlers.replyToComment(deps, paseo, input));
+  metrics.handle(editComment, (input, { paseo }) => handlers.editComment(deps, paseo, input));
+  metrics.handle(deleteComment, (input, { paseo }) => handlers.deleteComment(deps, paseo, input));
+  metrics.handle(resolveComment, (input, { paseo }) => handlers.resolveComment(deps, paseo, input));
+  metrics.handle(approveReview, (input, { paseo }) => handlers.approveReview(deps, paseo, input));
+  metrics.handle(setReviewAgent, async ({ workspaceId, agentId }, { paseo }) => {
     await setAgent(workspaceId, await dir(paseo, workspaceId), agentId);
     return { ok: true as const };
   });
-  server.handle(setReviewBase, async ({ workspaceId, baseRef }, { paseo }) => {
+  metrics.handle(setReviewBase, async ({ workspaceId, baseRef }, { paseo }) => {
     await setBase(workspaceId, await dir(paseo, workspaceId), baseRef);
     return { ok: true as const };
   });
 
-  server.handle(setReviewed, async ({ workspaceId, ...input }, { paseo }) =>
+  metrics.handle(setReviewed, async ({ workspaceId, ...input }, { paseo }) =>
     setFileReviewed(workspaceId, await dir(paseo, workspaceId), input),
   );
 
-  server.handle(lspSync, async ({ workspaceId, path, text }, { paseo }) =>
+  metrics.handle(lspSync, async ({ workspaceId, path, text }, { paseo }) =>
     lsp.sync(workspaceId, await dir(paseo, workspaceId), path, text),
   );
-  server.handle(lspDefinition, async ({ workspaceId, path, position, kind }, { paseo }) =>
+  metrics.handle(lspDefinition, async ({ workspaceId, path, position, kind }, { paseo }) =>
     lsp.definition(workspaceId, await dir(paseo, workspaceId), path, position, kind),
   );
-  server.handle(lspHover, async ({ workspaceId, path, position }, { paseo }) =>
+  metrics.handle(lspHover, async ({ workspaceId, path, position }, { paseo }) =>
     lsp.hover(workspaceId, await dir(paseo, workspaceId), path, position),
   );
-  server.handle(lspCompletion, async ({ workspaceId, path, position }, { paseo }) =>
+  metrics.handle(lspCompletion, async ({ workspaceId, path, position }, { paseo }) =>
     lsp.completion(workspaceId, await dir(paseo, workspaceId), path, position),
   );
-  server.handle(lspDiagnostics, async ({ workspaceId, path }, { paseo }) =>
+  metrics.handle(lspDiagnostics, async ({ workspaceId, path }, { paseo }) =>
     lsp.diagnostics(workspaceId, await dir(paseo, workspaceId), path),
   );
 
-  server.handle(claimOpenRequests, async () => ({ requests: await claimRequests() }));
+  metrics.handle(claimOpenRequests, async () => ({ requests: await claimRequests() }));
 
-  server.handle(loadStory, async ({ workspaceId }, { paseo }) => {
+  metrics.handle(loadStory, async ({ workspaceId }, { paseo }) => {
     const root = await dir(paseo, workspaceId);
     const { baseRef } = await loadReviewDoc(workspaceId, root);
     return story.loadStory(workspaceId, root, baseRef);
   });
-  server.handle(requestStory, async ({ workspaceId, scope, compare, guidance }, { paseo }) => {
+  metrics.handle(requestStory, async ({ workspaceId, scope, compare, guidance }, { paseo }) => {
     const review = await loadReviewDoc(workspaceId, await dir(paseo, workspaceId));
     const text = story.storyRequestText(toCompare(scope, compare), guidance, await story.hasStory(workspaceId));
     const agentId = await notes.deliverText(paseo, review, text);
     return { ok: true as const, agentId };
   });
-  server.handle(clearStory, async ({ workspaceId }) => {
+  metrics.handle(clearStory, async ({ workspaceId }) => {
     await story.clearStory(workspaceId);
     return { ok: true as const };
   });
 
-  server.handle(listPlans, async ({ workspaceId }) => ({ plans: await plans.listPlans(workspaceId) }));
-  server.handle(loadPlan, async ({ workspaceId, planId, version }) => {
+  metrics.handle(listPlans, async ({ workspaceId }) => ({ plans: await plans.listPlans(workspaceId) }));
+  metrics.handle(loadPlan, async ({ workspaceId, planId, version }) => {
     const loaded = await plans.loadPlan(workspaceId, planId, version);
     const { plan, markdown, blocks, previousMarkdown, annotations } = loaded;
     return { plan, version: loaded.version, markdown, blocks, previousMarkdown, annotations };
   });
-  server.handle(openFilePlan, async ({ workspaceId, path, markdown }) => ({
+  metrics.handle(openFilePlan, async ({ workspaceId, path, markdown }) => ({
     planId: await planReview.openFile(workspaceId, cleanRelative(path), markdown),
   }));
-  server.handle(annotatePlan, async ({ workspaceId, planId, annotation }) =>
+  metrics.handle(annotatePlan, async ({ workspaceId, planId, annotation }) =>
     plans.addAnnotation(workspaceId, planId, annotation, await handlers.reviewer(deps)),
   );
-  server.handle(updatePlanAnnotation, async ({ workspaceId, planId, ...update }, { paseo }) => {
+  metrics.handle(updatePlanAnnotation, async ({ workspaceId, planId, ...update }, { paseo }) => {
     const result = await plans.updateAnnotation(workspaceId, planId, update, await handlers.reviewer(deps));
     // After a verdict, a reply goes to the agent at once; before one, it waits with the rest of the drafts.
     if (result.kind === "updated" && result.replyId !== null && result.annotation.sentInVersion !== undefined) {
@@ -142,7 +144,7 @@ export default function contribute(server: PluginServerContext) {
     }
     return { ok: true as const };
   });
-  server.handle(decidePlan, (input, { paseo }) => planReview.decide(paseo, input));
+  metrics.handle(decidePlan, (input, { paseo }) => planReview.decide(paseo, input));
 
   const unhooks = [
     server.before("agent.session_open", ({ request }) => withDebriefTools(request, tools)),
@@ -177,6 +179,7 @@ export default function contribute(server: PluginServerContext) {
     .catch((error: unknown) => console.error("[debrief] could not prune archived workspaces:", error));
 
   return async () => {
+    metrics.stop();
     for (const unhook of unhooks) unhook();
     notes.stop();
     await lsp.stopAll();
