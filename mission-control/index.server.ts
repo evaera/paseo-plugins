@@ -26,7 +26,7 @@ import { readNotes, writeNotes } from "./server/notes";
 import { renameTask } from "./server/rename";
 import { requestDebriefOpen } from "./server/debrief";
 import { Runs } from "./server/runs";
-import { HostClients } from "./server/hosts";
+import { HostClients, withTimeout } from "./server/hosts";
 import { sendWithoutInterrupting } from "./server/send";
 import type { PaseoApi } from "./server/host-types";
 import {
@@ -101,20 +101,24 @@ export default function contribute(server: PluginServerContext) {
     return { config, resolvedHome: home };
   });
 
-  metrics.handle(loadFleetRpc, async (_input, { paseo }) => {
+  let pendingFleet: ReturnType<typeof loadFleet> | undefined;
+  metrics.handle(loadFleetRpc, (_input, { paseo }) => {
     watches.remember(paseo);
-    const fleet = await loadFleet(
+    // Release a stuck shared assembly before the host's 30-second plugin RPC deadline.
+    pendingFleet ??= withTimeout(readMissionControlConfig().then((config) => loadFleet(
       paseo,
       hosts,
-      await readMissionControlConfig(),
+      config,
       reports,
       () => watches.runner.summaries(),
       locations,
-    );
-    // A Mission Control agent launched before the plugin named its home gets its name the first time the board looks.
-    const workspaceId = fleet.coordinator?.workspaceId ?? null;
-    if (workspaceId !== null && fleet.coordinatorInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
-    return fleet;
+    )), 20_000, "The board").then((fleet) => {
+      // A Mission Control agent launched before the plugin named its home gets its name the first time the board looks.
+      const workspaceId = fleet.coordinator?.workspaceId ?? null;
+      if (workspaceId !== null && fleet.coordinatorInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
+      return fleet;
+    }).finally(() => { pendingFleet = undefined; });
+    return pendingFleet;
   });
   metrics.handle(enableAgentTools, async (_input, { paseo }) => {
     await paseo.config.patch({ mcp: { injectIntoAgents: true } });
