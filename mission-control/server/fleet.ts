@@ -3,10 +3,9 @@
  * knows by its labels, the backlog Mission Control keeps, and each crewmate's
  * last status line — joined into cards and filed into columns.
  *
- * Nothing here is cached across calls except the status lines, and those are
- * keyed by the agent's `updatedAt`: a crewmate that has not moved is not asked
- * for its timeline again, which is what keeps a poll every few seconds cheap
- * with a large crew.
+ * Status lines are keyed by the agent's `updatedAt`, so a quiet crewmate is
+ * not asked for its timeline again. Workspace badges share the short-lived
+ * list snapshots in daemon-reads, independently of streaming agent updates.
  */
 import { realpath } from "node:fs/promises";
 
@@ -66,7 +65,7 @@ export async function listAgents(
   let cursor: string | undefined;
   do {
     const page = await paseo.agents.list({
-      filter,
+      filter: { ...filter, includeArchived: false },
       page: cursor === undefined ? { limit: PAGE_SIZE } : { limit: PAGE_SIZE, cursor },
     });
     agents.push(...page.entries.map((entry) => entry.agent));
@@ -448,7 +447,7 @@ export async function loadFleet(
       .map(async ({ agent, host }) => {
         const workspaceId = agent.workspaceId ?? "";
         // A host too slow to say what changed still has a workspace Debrief can open.
-        const info = await withTimeout(debriefInfo(host.api, workspaceId, host.serverId, agent.updatedAt), HOST_TIMEOUT_MS, "A workspace's changes").catch(
+        const info = await withTimeout(debriefInfo(host.api, workspaceId, host.serverId), HOST_TIMEOUT_MS, "A workspace's changes").catch(
           (): DebriefInfo => ({ workspaceId, serverId: host.serverId, additions: 0, deletions: 0, openComments: 0, story: false }),
         );
         if (info !== null) debrief.set(agent.id, info);

@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { DebriefInfo, DebriefView } from "../shared/fleet";
 import { paseoHome } from "./data-dir";
 import type { PaseoApi } from "./host-types";
+import { readWorkspaces } from "./daemon-reads";
 
 const WORKSPACE_ID = /^[\w-]{1,128}$/;
 
@@ -50,37 +51,22 @@ async function reviewState(workspaceId: string): Promise<{ openComments: number;
   return { openComments, story };
 }
 
-/** A workspace's diff size as last read, by host and workspace, kept while its worker has not moved. */
-const diffs = new Map<string, { stamp: string; at: number; diff: { additions: number; deletions: number } | null }>();
-/** How long a reading stands even when nothing about the worker has changed: edits by hand do not move it. */
-const DIFF_TTL_MS = 60_000;
-
 /**
  * What Debrief can open for a worker's workspace, or null for an id that is not one. A workspace with
  * no diff against its base branch still gets one, with zero sizes: a worker that commits straight to
  * the base branch has nothing there, and Debrief compares other ranges too. `paseo` is the worker's
- * own host; `serverId` is null for this Mac, whose Debrief files give the badges. `stamp` is the
- * worker's `updatedAt`, so a quiet worker's workspace is asked about once a minute, not every poll.
+ * own host; `serverId` is null for this Mac, whose Debrief files give the badges. The shared workspace
+ * snapshot expires after 15 seconds, regardless of how often a worker's stream changes `updatedAt`.
  */
 export async function debriefInfo(
   paseo: PaseoApi,
   workspaceId: string,
   serverId: string | null = null,
-  stamp = "",
 ): Promise<DebriefInfo | null> {
   if (!WORKSPACE_ID.test(workspaceId)) return null;
-  const key = `${serverId ?? ""}/${workspaceId}`;
-  const known = diffs.get(key);
-  let diff = known !== undefined && known.stamp === stamp && Date.now() - known.at < DIFF_TTL_MS ? known.diff : undefined;
-  if (diff === undefined) {
-    // A host that will not say reads as no changes, and is asked again after the TTL.
-    const workspace = await paseo.workspaces
-      .ref(workspaceId)
-      .refresh()
-      .catch(() => null);
-    diff = workspace?.diffStat ?? null;
-    diffs.set(key, { stamp, at: Date.now(), diff });
-  }
+  // ref(id).refresh() fetches a whole list; never call it separately for every worker.
+  const workspaces = await readWorkspaces(paseo).catch(() => null);
+  const diff = workspaces?.get(workspaceId)?.diffStat ?? null;
   const badges = serverId === null ? await reviewState(workspaceId) : { openComments: 0, story: false };
   return { workspaceId, serverId, additions: diff?.additions ?? 0, deletions: diff?.deletions ?? 0, ...badges };
 }

@@ -160,6 +160,7 @@ export default function contribute(server: PluginServerContext) {
     }),
     server.on("agent.archived", ({ agent }) => notes.forgetAgent(agent.id)),
     server.on("agent.closed", ({ agent }) => notes.forgetAgent(agent.id)),
+    server.on("workspace.created", ({ workspace }) => forgetWorkspace(workspace.id)),
     server.on("workspace.archived", async ({ workspace }) => {
       forgetWorkspace(workspace.id);
       await markArchived(workspace.id, workspace.archivedAt).catch((error: unknown) => {

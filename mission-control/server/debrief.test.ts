@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { debriefInfo, debriefInstalled, requestDebriefOpen } from "./debrief";
 import type { PaseoApi } from "./host-types";
@@ -15,6 +15,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   if (previousHome === undefined) delete process.env.PASEO_HOME;
   else process.env.PASEO_HOME = previousHome;
   await rm(paseoHome, { recursive: true, force: true });
@@ -23,7 +24,7 @@ afterEach(async () => {
 const debrief = () => join(paseoHome, "plugin-data", "debrief");
 
 function fakePaseo(diffStat: { additions: number; deletions: number } | null): PaseoApi {
-  return { workspaces: { ref: () => ({ refresh: async () => ({ diffStat }) }) } } as unknown as PaseoApi;
+  return { workspaces: { list: async () => ({ entries: [{ id: "wks_abc", diffStat }], pageInfo: {} }) } } as unknown as PaseoApi;
 }
 
 describe("Debrief from a card", () => {
@@ -52,7 +53,7 @@ describe("Debrief from a card", () => {
     await mkdir(reviews, { recursive: true });
     await writeFile(join(reviews, "review.json"), JSON.stringify({ comments: [{ resolved: true }, { resolved: false }, {}] }));
     await writeFile(join(reviews, "story.json"), "{}");
-    expect(await debriefInfo(fakePaseo({ additions: 12, deletions: 3 }), "wks_abc", null, "t1")).toEqual({
+    expect(await debriefInfo(fakePaseo({ additions: 12, deletions: 3 }), "wks_abc")).toEqual({
       workspaceId: "wks_abc",
       serverId: null,
       additions: 12,
@@ -61,17 +62,18 @@ describe("Debrief from a card", () => {
       story: true,
     });
     const unchanged = { workspaceId: "wks_abc", serverId: null, additions: 0, deletions: 0, openComments: 2, story: true };
-    expect(await debriefInfo(fakePaseo({ additions: 0, deletions: 0 }), "wks_abc", null, "t2")).toEqual(unchanged);
-    expect(await debriefInfo(fakePaseo(null), "wks_abc", null, "t3")).toEqual(unchanged);
-    const failing = { workspaces: { ref: () => ({ refresh: async () => Promise.reject(new Error("offline")) }) } } as unknown as PaseoApi;
-    expect(await debriefInfo(failing, "wks_abc", null, "t4")).toEqual(unchanged);
-    expect(await debriefInfo(fakePaseo({ additions: 1, deletions: 0 }), "not a workspace", null, "t5")).toBeNull();
+    expect(await debriefInfo(fakePaseo({ additions: 0, deletions: 0 }), "wks_abc")).toEqual(unchanged);
+    expect(await debriefInfo(fakePaseo(null), "wks_abc")).toEqual(unchanged);
+    const failing = { workspaces: { list: async () => Promise.reject(new Error("offline")) } } as unknown as PaseoApi;
+    expect(await debriefInfo(failing, "wks_abc")).toEqual(unchanged);
+    expect(await debriefInfo(fakePaseo({ additions: 1, deletions: 0 }), "not a workspace")).toBeNull();
   });
 
-  it("reads a worker on another host by its own Paseo, without this Mac's badges, and asks again only once it moves", async () => {
+  it("shares a host's workspace snapshot until its TTL, without this Mac's badges", async () => {
+    vi.useFakeTimers();
     let reads = 0;
-    const remote = { workspaces: { ref: () => ({ refresh: async () => (reads++, { diffStat: { additions: 5, deletions: 2 } }) }) } } as unknown as PaseoApi;
-    expect(await debriefInfo(remote, "wks_far", "srv_x", "u1")).toEqual({
+    const remote = { workspaces: { list: async () => (reads++, { entries: [{ id: "wks_far", diffStat: { additions: 5, deletions: 2 } }], pageInfo: {} }) } } as unknown as PaseoApi;
+    expect(await debriefInfo(remote, "wks_far", "srv_x")).toEqual({
       workspaceId: "wks_far",
       serverId: "srv_x",
       additions: 5,
@@ -79,9 +81,10 @@ describe("Debrief from a card", () => {
       openComments: 0,
       story: false,
     });
-    await debriefInfo(remote, "wks_far", "srv_x", "u1");
+    await Promise.all(Array.from({ length: 20 }, () => debriefInfo(remote, "wks_far", "srv_x")));
     expect(reads).toBe(1);
-    await debriefInfo(remote, "wks_far", "srv_x", "u2");
+    await vi.advanceTimersByTimeAsync(15_000);
+    await debriefInfo(remote, "wks_far", "srv_x");
     expect(reads).toBe(2);
   });
 });

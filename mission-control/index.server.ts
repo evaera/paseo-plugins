@@ -75,6 +75,7 @@ import {
 import { findHomeFiles, listHomeFiles, readHomeFile, readImage, revealFile, writeHomeFile } from "./shared/files";
 import { startWatches } from "./server/watch-service";
 import { displaySettings } from "./shared/settings";
+import { readProjects } from "./server/daemon-reads";
 
 export default function contribute(server: PluginServerContext) {
   const reports = new ReportCache();
@@ -175,7 +176,7 @@ export default function contribute(server: PluginServerContext) {
   // A listing that fails leaves the home alone reachable rather than failing the chat.
   async function projectRoots(paseo: PaseoApi): Promise<string[]> {
     try {
-      return (await paseo.projects.list()).projects.map((project) => project.projectRootPath);
+      return (await readProjects(paseo)).projects.map((project) => project.projectRootPath);
     } catch (caught) {
       console.warn("[mission-control] projects could not be listed for file links:", caught);
       return [];
