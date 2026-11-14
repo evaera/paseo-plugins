@@ -14,8 +14,10 @@
  *
  * This is the protocol, not an interface. Checked against 0.9.0 and 0.9.1;
  * a later daemon that changes the message is answered by a timeout, which the
- * caller logs and survives. Use it only for requests whose failure costs
- * nothing, and never send anything but a complete, valid session message: a
+ * caller logs and survives. Coordinator sends also use this channel to retain late acknowledgments
+ * beyond the SDK deadline, with a stable messageId and a durable intent saved before dispatch.
+ * Their timeouts remain uncertain and never cause a resend. Never use this for an unguarded
+ * mutation, and never send anything but a complete, valid session message: a
  * malformed frame is a protocol violation, and the daemon closes the socket
  * every other call from this plugin rides on.
  */

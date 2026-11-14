@@ -40,10 +40,21 @@ const rpcWindows = selected.flatMap((row) => {
 const rpcMethods = new Map();
 const processes = new Map();
 const timelineTails = new Map();
+const coordinatorSends = new Map();
 for (const row of selected) {
   if (row.msg !== "Plugin output" || typeof row.message !== "string") continue;
   let event;
   try { event = JSON.parse(row.message); } catch { continue; }
+  if (event.event === "plugin_coordinator_send") {
+    const key = `${event.agentId}/${event.messageId}`;
+    const send = coordinatorSends.get(key) ?? { agentId: event.agentId, messageId: event.messageId, started: 0, accepted: 0, unknown: 0, maxMs: 0 };
+    if (event.phase === "start") send.started += 1;
+    else if (event.phase === "accepted") send.accepted += 1;
+    else if (event.phase === "unknown") send.unknown += 1;
+    send.maxMs = Math.max(send.maxMs, event.durationMs ?? 0);
+    coordinatorSends.set(key, send);
+    continue;
+  }
   if (event.event !== "plugin_timeline_tail") continue;
   const key = `${event.source}/${event.agentId}`;
   const tail = timelineTails.get(key) ?? { agentId: event.agentId, source: event.source, started: 0, completed: 0, failed: 0, totalMs: 0, maxMs: 0, maxItems: 0 };
@@ -84,6 +95,7 @@ console.log(JSON.stringify({
   configReadTimeouts: selected.filter((row) => row.msg === "Failed to parse paseo.json; treating workspace as having no scripts" && row.err?.message === "Project config unavailable").length,
   pluginRpcMetricsWindows: rpcWindows.length,
   pluginTimelineTails: [...timelineTails.values()],
+  pluginCoordinatorSends: [...coordinatorSends.values()],
   // Handler times exclude IPC, daemon scheduling, and input/output validation. They include awaited I/O/SDK calls.
   pluginRpcMethods: [...rpcMethods.values()].map((method) => ({ ...method,
     startedPerMinute: +(method.started / Number(minutes)).toFixed(2),

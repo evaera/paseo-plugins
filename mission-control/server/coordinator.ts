@@ -15,9 +15,10 @@ import { TEMPLATES, message } from "./templates";
 import { nameHomeOnce } from "./home-name";
 import type { PaseoApi } from "./host-types";
 import { sendSessionRequest } from "./daemon-session";
-import { sendWithoutInterrupting } from "./send";
+import { sendCoordinatorMessage } from "./send";
 import { writeUpload } from "./uploads";
 import { keepChatImages, newImageMessageId } from "./chat-images";
+import { randomUUID } from "node:crypto";
 
 export const COORDINATOR_TITLE = "Mission Control";
 
@@ -235,8 +236,8 @@ export async function askCoordinator(paseo: PaseoApi, message: UserMessage): Pro
   const agentId = await requireCoordinator(paseo);
   const images = message.images ?? [];
   const attachments = await Promise.all((message.files ?? []).map((file) => writeUpload(file)));
-  const messageId = images.length > 0 ? newImageMessageId() : null;
-  if (messageId !== null) {
+  const messageId = message.messageId ?? (images.length > 0 ? newImageMessageId() : `mission-control-message-${randomUUID()}`);
+  if (images.length > 0) {
     // Kept before the send, so the copies are there when the row appears. A failed copy costs the
     // chat its picture, never the message.
     const home = resolveHome(await readMissionControlConfig());
@@ -244,8 +245,9 @@ export async function askCoordinator(paseo: PaseoApi, message: UserMessage): Pro
       console.error("[mission-control] could not keep the chat's images:", error);
     });
   }
-  await sendWithoutInterrupting(paseo, agentId, message.text.trim(), {
-    ...(messageId !== null ? { images, messageId } : {}),
+  await sendCoordinatorMessage(paseo, agentId, message.text.trim(), {
+    messageId,
+    ...(images.length > 0 ? { images } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
   });
   return agentId;

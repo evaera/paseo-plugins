@@ -33,7 +33,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { WatchResult, WatchSummary } from "../shared/fleet";
+import { WATCH_MESSAGE_ID_PREFIX, type WatchResult, type WatchSummary } from "../shared/fleet";
 import { serialized } from "./serialize";
 import { TEMPLATES, message } from "./templates";
 import { BUILT_IN_WATCHES, builtInStates, listWatches, seedWatches, type WatchFile } from "./watch-files";
@@ -86,10 +86,11 @@ interface RunnerState {
   queue: QueuedNote[];
   /** Outputs dropped from a full queue since the last delivery. */
   dropped: number;
+  delivery?: { messageId: string; text: string; batch: QueuedNote[]; cut: number; dropped: number };
 }
 
 /** Whether the note reached Mission Control, or has to wait for it — busy, or not there. */
-export type DeliveryOutcome = "sent" | "wait";
+export type DeliveryOutcome = "sent" | "wait" | "sending";
 
 export interface WatchRunnerOptions {
   /** Mission Control's home, or null while no launch has prepared one. */
@@ -97,7 +98,7 @@ export interface WatchRunnerOptions {
   /** Names the user has switched off. */
   disabled: () => Promise<readonly string[]>;
   /** Sends the note, or says to wait: while Mission Control is mid-turn, or while there is none. */
-  deliver: (text: string) => Promise<DeliveryOutcome>;
+  deliver: (text: string, messageId: string) => Promise<DeliveryOutcome>;
   /** The runner's own file, `watches.json`. */
   stateFile: string;
   /** Where each script's `MISSION_CONTROL_WATCH_STATE` directory goes. */
@@ -365,29 +366,42 @@ export class WatchRunner {
   private async flushOnce(): Promise<void> {
     if (this.aborter.signal.aborted) return;
     const state = await this.load();
-    if (state.queue.length === 0 && state.dropped === 0) return;
-    const batch = [...state.queue];
-    const dropped = state.dropped;
-    const note = await fitWatchNote(batch, dropped);
+    if (state.delivery === undefined) {
+      if (state.queue.length === 0 && state.dropped === 0) return;
+      const batch = [...state.queue], dropped = state.dropped;
+      const note = await fitWatchNote(batch, dropped);
+      state.delivery = { messageId: `${WATCH_MESSAGE_ID_PREFIX}${randomUUID()}`, text: note.text, batch, cut: note.cut.length, dropped };
+      state.queue = state.queue.filter((queued) => !batch.includes(queued));
+      state.dropped -= dropped;
+    }
+    // Persist the frozen batch before any send; newer output has its own queue and identity.
+    await this.persist(true);
+    const delivery = state.delivery;
     let outcome: DeliveryOutcome;
     try {
-      outcome = await this.options.deliver(note.text);
+      outcome = await this.options.deliver(delivery.text, delivery.messageId);
     } catch (error) {
       console.error("[mission-control] could not send the watches' output to Mission Control:", error);
       return;
     }
-    if (outcome !== "sent") return;
-    // What was cut to fit is gone too: counted in this message's tag, not tried again.
-    state.queue = state.queue.filter((queued) => !batch.includes(queued));
-    state.dropped -= dropped;
+    if (outcome === "sending") return;
+    delete state.delivery;
+    if (outcome === "wait") {
+      // A known pre-send wait (busy or absent) can still join newer notes in one batch.
+      state.queue.unshift(...delivery.batch);
+      state.dropped += delivery.dropped;
+      while (state.queue.length > MAX_QUEUED) { state.queue.shift(); state.dropped += 1; }
+      await this.persist();
+      return;
+    }
     const settle = (queued: QueuedNote, result: WatchResult) => {
       const record = state.watches[queued.name];
       if (queued.kind === "output" && record?.lastResult === "queued" && record.lastOutputAt === queued.ran) {
         state.watches[queued.name] = { ...record, lastResult: result };
       }
     };
-    note.cut.forEach((queued) => settle(queued, "dropped"));
-    note.sent.forEach((queued) => settle(queued, "delivered"));
+    delivery.batch.slice(0, delivery.cut).forEach((queued) => settle(queued, "dropped"));
+    delivery.batch.slice(delivery.cut).forEach((queued) => settle(queued, "delivered"));
     await this.persist();
   }
 
@@ -411,7 +425,7 @@ export class WatchRunner {
         invalid: watch.invalid,
         running: this.running.has(watch.name),
         lastRunAt: record.lastRunAt,
-        lastResult: watch.invalid === null ? shownResult(record, state.queue, watch.name) : "invalid",
+        lastResult: watch.invalid === null ? shownResult(record, [...(state.delivery?.batch ?? []), ...state.queue], watch.name) : "invalid",
         lastOutput: record.lastOutput,
         lastOutputAt: record.lastOutputAt,
         lastError: record.lastError,
@@ -430,7 +444,7 @@ export class WatchRunner {
     return this.loading;
   }
 
-  private persist(): Promise<void> {
+  private persist(strict = false): Promise<void> {
     const state = this.state;
     if (state === null) return Promise.resolve();
     const path = this.options.stateFile;
@@ -441,6 +455,7 @@ export class WatchRunner {
       await rename(temporary, path);
     }).catch((error: unknown) => {
       console.error(`[mission-control] could not save ${path}:`, error);
+      if (strict) throw error;
     });
   }
 }
@@ -483,7 +498,7 @@ export async function readState(path: string): Promise<RunnerState> {
     }
     return { watches: {}, queue: [], dropped: 0 };
   }
-  const object = (raw ?? {}) as { watches?: unknown; queue?: unknown; dropped?: unknown };
+  const object = (raw ?? {}) as { watches?: unknown; queue?: unknown; dropped?: unknown; delivery?: RunnerState["delivery"] };
   const watches: Record<string, WatchRecord> = {};
   if (typeof object.watches === "object" && object.watches !== null) {
     for (const [name, value] of Object.entries(object.watches as Record<string, Record<string, unknown>>)) {
@@ -510,5 +525,9 @@ export async function readState(path: string): Promise<RunnerState> {
       })
     : [];
   const dropped = typeof object.dropped === "number" && object.dropped > 0 ? Math.floor(object.dropped) : 0;
-  return { watches, queue, dropped };
+  const saved = object.delivery;
+  const delivery = saved != null && typeof saved.messageId === "string" && typeof saved.text === "string" &&
+    Array.isArray(saved.batch) && Number.isInteger(saved.cut) && saved.cut >= 0 && saved.cut <= saved.batch.length &&
+    Number.isInteger(saved.dropped) && saved.dropped >= 0 ? saved : undefined;
+  return { watches, queue, dropped, ...(delivery === undefined ? {} : { delivery }) };
 }

@@ -13,19 +13,19 @@
  * (`WatchRunner.flushAfterTurn`), and every minute's tick tries again, so a turn whose end the plugin
  * missed delays a note by a minute at most.
  */
-import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 
-import { WATCH_MESSAGE_ID_PREFIX, type MissionControlConfig } from "../shared/fleet";
+import { type MissionControlConfig } from "../shared/fleet";
 import { resolveHome, updateMissionControlConfig } from "./config";
 import { pluginDir } from "./data-dir";
 import { resolveCoordinator } from "./fleet";
 import { isHomeReady } from "./home";
 import type { PaseoApi } from "./host-types";
 import { isMidTurn } from "./coordinator";
-import { sendWithoutInterrupting } from "./send";
+import { sendCoordinatorMessage } from "./send";
+import { coordinatorDeliveries } from "./coordinator-deliveries";
 import { serialized } from "./serialize";
 import { WatchRunner, type DeliveryOutcome } from "./watches";
 
@@ -33,13 +33,18 @@ import { WatchRunner, type DeliveryOutcome } from "./watches";
  * Sends to Mission Control only when Paseo says it is not mid-turn, asked afresh every time, under a
  * watch message id so the chat can tell it from the user's words.
  */
-export async function deliverToCoordinator(paseo: PaseoApi | null, config: MissionControlConfig, text: string): Promise<DeliveryOutcome> {
+export async function deliverToCoordinator(paseo: PaseoApi | null, config: MissionControlConfig, text: string, messageId: string): Promise<DeliveryOutcome> {
+  const previous = await coordinatorDeliveries.status(messageId);
+  if (previous.state !== "missing") return previous.state === "sent" ? "sent" : previous.state === "failed" ? "wait" : "sending";
   if (paseo === null) return "wait";
   const { agent } = await resolveCoordinator(paseo, config);
   if (agent === null) return "wait";
   if (isMidTurn(agent)) return "wait";
-  await sendWithoutInterrupting(paseo, agent.id, text, { messageId: `${WATCH_MESSAGE_ID_PREFIX}${randomUUID()}` });
-  return "sent";
+  await coordinatorDeliveries.submit(messageId, { agentId: agent.id, text }, async () => {
+    await sendCoordinatorMessage(paseo, agent.id, text, { messageId });
+    return agent.id;
+  });
+  return "sending";
 }
 
 export interface WatchService {
@@ -68,8 +73,8 @@ export function startWatches(
     async disabled() {
       return (await readConfig()).disabledWatches;
     },
-    async deliver(text) {
-      return deliverToCoordinator(paseo, await readConfig(), text);
+    async deliver(text, messageId) {
+      return deliverToCoordinator(paseo, await readConfig(), text, messageId);
     },
     stateFile: join(pluginDir(), "watches.json"),
     scriptStateRoot: join(pluginDir(), "watch-state"),
