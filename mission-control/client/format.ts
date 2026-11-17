@@ -20,6 +20,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnMeta>> = {
   queued: { id: "queued", title: "Inbox", icon: "Inbox" },
   working: { id: "working", title: "Working", icon: "Hammer" },
   blocked: { id: "blocked", title: "Needs you", icon: "Ban" },
+  review: { id: "review", title: "Review", icon: "ClipboardCheck" },
   parked: { id: "parked", title: "Parked", icon: "Clock" },
   done: { id: "done", title: "Done", icon: "Check" },
   failed: { id: "failed", title: "Failed", icon: "AlertTriangle" },
@@ -28,7 +29,7 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnMeta>> = {
 };
 
 /** The board's columns, in the order work moves through them. */
-export const BOARD_ORDER: readonly ColumnId[] = ["queued", "working", "blocked", "idle", "waiting", "parked", "failed", "done"];
+export const BOARD_ORDER: readonly ColumnId[] = ["queued", "working", "blocked", "review", "idle", "waiting", "parked", "failed", "done"];
 
 /** The watches footer's one line: "pr-watch · ran 4m ago · nothing new", or a count past one. */
 export function watchesSummary(watches: readonly WatchSummary[], now: number = Date.now()): string {
@@ -43,6 +44,8 @@ export function columnTone(theme: PluginTheme, column: ColumnId): string {
   switch (column) {
     case "working":
       return theme.colors.accent;
+    case "review":
+      return theme.colors.foreground;
     case "blocked":
     case "parked":
       return theme.colors.statusWarning;

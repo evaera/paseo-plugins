@@ -11,18 +11,15 @@
  * Paseo knows (running, idle, waiting on a permission), and Mission Control is
  * told the crewmate stopped without saying why.
  */
-import type { CrewState } from "../shared/fleet";
+import { ReviewPacketSchema, type CrewReportSummary, type CrewState } from "../shared/fleet";
 import { findLinks } from "./links";
 
-export interface CrewReport {
-  state: CrewState;
-  /** The words after the colon, trimmed. */
-  text: string;
-}
+export type CrewReport = CrewReportSummary;
 
 const STATES: ReadonlyArray<CrewState> = [
   "working",
   "needs-decision",
+  "review",
   "blocked",
   "paused",
   "done",
@@ -35,7 +32,7 @@ const STATES: ReadonlyArray<CrewState> = [
  * bold in front, `status:` before the state, a `[key=…]` tag before the colon.
  */
 const STATUS_LINE =
-  /^\s*(?:[-*>]\s*)?(?:\*\*|__)?(?:status\s*[:=]\s*)?(working|needs[-_ ]decision|blocked|paused|done|failed|resolved)(?:\*\*|__)?\s*(?:\[[^\]]*\]\s*)?:\s*(.*?)\s*(?:\*\*|__)?\s*$/i;
+  /^\s*(?:[-*>]\s*)?(?:\*\*|__)?(?:status\s*[:=]\s*)?(working|needs[-_ ]decision|review|blocked|paused|done|failed|resolved)(?:\*\*|__)?\s*(?:\[[^\]]*\]\s*)?:\s*(.*?)\s*(?:\*\*|__)?\s*$/i;
 
 function normalizeState(raw: string): CrewState | null {
   const state = raw.toLowerCase().replace(/[_ ]/g, "-");
@@ -59,7 +56,21 @@ export function parseCrewReport(message: string | null | undefined, window = 4):
     if (match === null) continue;
     const state = normalizeState(match[1] ?? "");
     if (state === null) continue;
-    return { state, text: (match[2] ?? "").trim() };
+    const report: CrewReport = { state, text: (match[2] ?? "").trim() };
+    if (state !== "review" && state !== "needs-decision") return report;
+    if (line !== lines.at(-1)) return report;
+    const normalized = "\n" + message.replace(/\r\n?/g, "\n");
+    const start = normalized.lastIndexOf("\n```action-queue");
+    if (start === -1) return report;
+    const block = /^\n```action-queue[ \t]*\n([\s\S]*?)\n```[ \t]*\n[ \t\n]*[^\n]+\s*$/.exec(normalized.slice(start))?.[1];
+    if (block === undefined || block.length > 40_000) return report;
+    try {
+      const parsed = ReviewPacketSchema.safeParse(JSON.parse(block));
+      if (parsed.success) report.packet = parsed.data;
+    } catch {
+      // Keep the status when the agent sends a malformed packet.
+    }
+    return report;
   }
   return null;
 }

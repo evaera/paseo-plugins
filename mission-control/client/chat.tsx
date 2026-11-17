@@ -48,6 +48,7 @@ import { ImageGallery } from "./markdown-image";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { latestCoordinatorSeq, unreadKeys } from "./unread";
+import { TurnWorking } from "./turn-working";
 import { JumpToEnd, MONOSPACE, QuietButton, Spinner, errorText, tint } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
@@ -571,6 +572,9 @@ export function CoordinatorChat({
               />
             </View>
           ))}
+          {visible && pending.length === 0 && (status === "running" || status === "initializing") ? (
+            <TurnWorking startedAt={timeline.agent?.activeTurn?.startedAt ?? null} theme={theme} />
+          ) : null}
         </ScrollView>
         {follow.away ? <JumpToEnd theme={theme} onPress={follow.jumpToEnd} /> : null}
       </View>

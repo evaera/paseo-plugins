@@ -7,6 +7,7 @@
  * not asked for its timeline again. Workspace badges share the short-lived
  * list snapshots in daemon-reads, independently of streaming agent updates.
  */
+import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
 import {
@@ -160,7 +161,9 @@ export class ReportCache {
     this.latest.set(agent.id, agent);
     if (!this.allowed(agent)) return cached?.report ?? null;
     if (cached !== undefined && cached.updatedAt >= agent.updatedAt) return cached.report;
-    if (this.pending.has(agent.id) || Date.now() < (this.cooldown.get(agent.id)?.until ?? 0)) return cached?.report ?? null;
+    const previous = cached?.report;
+    const fallback = previous?.state === "review" || previous?.state === "needs-decision" ? null : previous ?? null;
+    if (this.pending.has(agent.id) || Date.now() < (this.cooldown.get(agent.id)?.until ?? 0)) return fallback;
 
     this.pending.add(agent.id);
     const updatedAt = agent.updatedAt;
@@ -174,13 +177,19 @@ export class ReportCache {
       if (page === null || current === undefined) return;
       const duration = Date.now() - started;
       this.cooldown.set(agent.id, { until: Date.now() + (duration >= 1000 ? Math.min(60_000, duration * 2) : 0), retryMs: 5000 });
-      if (this.allowed(current)) this.reports.set(agent.id, { updatedAt: page.agent?.updatedAt ?? updatedAt, report: parseCrewReport(closingText(page.entries.map((entry) => entry.item))) });
+      if (!this.allowed(current)) return;
+      const report = parseCrewReport(closingText(page.entries.map((entry) => entry.item)));
+      if (report?.state === "review" || report?.state === "needs-decision") {
+        const entry = [...page.entries].reverse().find((candidate) => candidate.item.type === "assistant_message");
+        if (entry !== undefined) report.sequence = entry.seqStart;
+      }
+      this.reports.set(agent.id, { updatedAt: page.agent?.updatedAt ?? updatedAt, report });
     }).catch(() => {
       if (!this.latest.has(agent.id)) return;
       const retryMs = Math.min(60_000, Math.max(this.cooldown.get(agent.id)?.retryMs ?? 5000, (Date.now() - started) * 2));
       this.cooldown.set(agent.id, { until: Date.now() + retryMs, retryMs: Math.min(60_000, retryMs * 2) });
     }).finally(() => this.pending.delete(agent.id));
-    return cached?.report ?? null;
+    return fallback;
   }
 
   /** Drops agents no longer in the crew, so the map cannot grow for the life of the daemon. */
@@ -207,20 +216,20 @@ export function crewColumn(
   report: CrewReportSummary | null,
   held = false,
   waiting = false,
+  review = false,
 ): ColumnId {
   if (agent.pendingPermissions > 0) return "blocked";
   if (agent.status === "error") return "failed";
   if (agent.status === "running" || agent.status === "initializing") return "working";
+  if (report?.state === "needs-decision" || report?.state === "blocked") return "blocked";
+  if (report?.state === "review" || (review && report?.state !== "failed")) return "review";
   if (held && report?.state !== "failed") return "blocked";
-  if (waiting && report?.state !== "failed" && report?.state !== "blocked" && report?.state !== "needs-decision") {
+  if (waiting && report?.state !== "failed") {
     return "waiting";
   }
   switch (report?.state) {
     case "failed":
       return "failed";
-    case "blocked":
-    case "needs-decision":
-      return "blocked";
     case "paused":
       return "parked";
     default:
@@ -233,6 +242,7 @@ export function crewColumn(
 /** Where a backlog item with no crewmate on it belongs. */
 export function backlogColumn(item: BacklogItem): ColumnId {
   if (item.section === "done") return "done";
+  if (item.review !== undefined) return "review";
   if (item.kind === "user" || item.hold !== null) return "blocked";
   if (item.waiting !== null) return "waiting";
   if (item.section === "in-flight") return "idle";
@@ -270,7 +280,7 @@ export function buildCards(backlog: readonly BacklogItem[], crew: readonly CrewM
     if (index !== -1) claimed.add(index);
     cards.push({
       key: `agent:${member.agent.id}`,
-      column: crewColumn(member.agent, member.report, item?.hold != null, item?.waiting != null),
+      column: crewColumn(member.agent, member.report, item?.hold != null, item?.waiting != null, item?.review !== undefined),
       taskId: taskId ?? item?.id ?? null,
       title: item?.title ?? member.agent.title ?? taskId ?? "Untitled crewmate",
       project: member.agent.labels[CREW_LABELS.project] ?? item?.project ?? null,
@@ -483,7 +493,18 @@ export async function loadFleet(
   );
   const cards = buildCards(backlog, crew).map((card) => {
     const info = card.agent === null ? undefined : debrief.get(card.agent.id);
-    return info === undefined ? card : { ...card, debrief: info };
+    const actionRevision = card.column === "review" || card.column === "blocked"
+      ? createHash("sha256").update(JSON.stringify([
+          card.taskId ?? card.key, card.agent?.id, card.agent?.serverId, card.column,
+          card.report, card.backlog?.hold, card.backlog?.review, card.backlog?.actions,
+          card.agent?.pendingPermissions, card.links, card.backlog?.reportPath,
+        ])).digest("hex")
+      : undefined;
+    return {
+      ...card,
+      ...(info === undefined ? {} : { debrief: info }),
+      ...(actionRevision === undefined ? {} : { actionRevision }),
+    };
   });
 
   return {

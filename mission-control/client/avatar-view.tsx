@@ -18,7 +18,7 @@ import { Text, View } from "react-native";
 
 import type { AgentSummary, FleetCard } from "../shared/fleet";
 import { avatarFrame, avatarIcon, avatarMood, dozeCount, type AvatarFrame, type AvatarMood } from "./avatar";
-import { agentStatusLabel } from "./format";
+import { agentStatusLabel, columnTone } from "./format";
 import type { StateTone } from "./worker-state";
 
 /** How often a face can change frame. */
@@ -130,6 +130,8 @@ export function stateColor(theme: PluginTheme, tone: StateTone): string {
       return colors.statusWarning;
     case "danger":
       return colors.statusDanger;
+    case "review":
+      return columnTone(theme, "review");
     case "accent":
       return colors.accent;
     default:

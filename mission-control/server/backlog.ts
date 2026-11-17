@@ -175,7 +175,12 @@ function parseItem(section: BacklogSection, line: string): BacklogItem | null {
     .trim();
   const outcome = OUTCOME.exec(body);
 
+  const review = field(groups, "review");
+  const priority = Number(field(groups, "priority"));
+
   return {
+    ...(review === null ? {} : { review }),
+    ...(Number.isSafeInteger(priority) && priority !== 0 ? { priority } : {}),
     section,
     id,
     title: title === "" ? id : title,

@@ -29,6 +29,7 @@ export const CREW_LABELS = {
 export const CrewStateSchema = z.enum([
   "working",
   "needs-decision",
+  "review",
   "blocked",
   "paused",
   "done",
@@ -37,7 +38,7 @@ export const CrewStateSchema = z.enum([
 ]);
 export type CrewState = z.infer<typeof CrewStateSchema>;
 
-export const COLUMN_IDS = ["queued", "working", "blocked", "parked", "done", "failed", "idle", "waiting"] as const;
+export const COLUMN_IDS = ["queued", "working", "blocked", "review", "parked", "done", "failed", "idle", "waiting"] as const;
 export const ColumnIdSchema = z.enum(COLUMN_IDS);
 export type ColumnId = z.infer<typeof ColumnIdSchema>;
 
@@ -67,9 +68,20 @@ export const AgentSummarySchema = z.object({
 });
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 
+export const ReviewPacketSchema = z.object({
+  specimens: z.string().max(20_000).optional(),
+  debrief: z.array(z.enum(["diff", "plans"])).max(2).optional(),
+  actions: z.array(z.object({
+    label: z.string().trim().min(1).max(60),
+    prompt: z.string().trim().min(1).max(2000),
+  })).max(6).optional(),
+});
+
 export const CrewReportSchema = z.object({
   state: CrewStateSchema,
   text: z.string(),
+  packet: ReviewPacketSchema.optional(),
+  sequence: z.number().int().optional(),
 });
 export type CrewReportSummary = z.infer<typeof CrewReportSchema>;
 
@@ -98,6 +110,8 @@ export const BacklogItemSchema = z.object({
   /** `(host: <label>)`: the connected host the item's agent runs on. */
   host: z.string().nullable(),
   hold: z.string().nullable(),
+  review: z.string().optional(),
+  priority: z.number().int().optional(),
   /** `(waiting: a code review)`: nothing left to do here, the next move is someone else's; a leading "on" is dropped. */
   waiting: z.string().nullable(),
   actions: z.array(CardActionSchema),
@@ -148,6 +162,7 @@ export const FleetCardSchema = z.object({
   /** Pull requests, tasks and pages: the report's link first, then the backlog line's. */
   links: z.array(z.string()),
   debrief: DebriefInfoSchema.optional(),
+  actionRevision: z.string().optional(),
 });
 export type FleetCard = z.infer<typeof FleetCardSchema>;
 

@@ -44,6 +44,8 @@ import { FilesView, type FilesRequest } from "./files";
 import { CoordinatorChat } from "./chat";
 import { userMessage } from "./attachments";
 import { CardView } from "./card-view";
+import { actionRevision, queueCards, type QueueProgress } from "./action-order";
+import { ActionPanel } from "./action-queue";
 import { chatAbout } from "./chat-about";
 import { subject, type DraftKind } from "./card-commands";
 import { BOARD_ORDER, agentStatusLabel, agentStatusTone, groupCards, revealFilesPatch, shortPath } from "./format";
@@ -68,10 +70,12 @@ import { createFleetQuery, FLEET_QUERY_KEY, fleetWaitMessage, STALE_FLEET_MESSAG
 export { FLEET_QUERY_KEY } from "./fleet-query";
 
 const fleetQuery = createFleetQuery();
-type Tab = "chat" | "board" | "files";
+type Tab = "chat" | "board" | "files" | "queue";
 let cachedTab: Tab = "chat";
+/** The pane the Coordinator tab was opened from on a single-pane layout. */
+let cachedSinglePane: Exclude<Tab, "chat"> = "board";
 /** What the right-hand pane shows on a wide layout: the crew, or the home's files. */
-let cachedRightPane: "board" | "files" = "board";
+let cachedRightPane: Exclude<Tab, "chat"> = "board";
 /** The open card, by `openedRef`: kept across a remount like the open tab. */
 let cachedWatching: string | null = null;
 /** The step the open card was opened on from its context menu, if any; kept with it. */
@@ -166,6 +170,9 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   const touch = useTouchTargets(tier);
   const [tab, setTabState] = useState<Tab>(cachedTab);
   const [rightPane, setRightPaneState] = useState(cachedRightPane);
+  const returnToQueue = useRef(false);
+  const queueProgress = useRef(values.queueProgress);
+  queueProgress.current = values.queueProgress;
   const [watching, setWatchingState] = useState(cachedWatching);
   const [enabling, setEnabling] = useState(false);
   const [charterBusy, setCharterBusy] = useState(false);
@@ -174,13 +181,17 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
 
   const fleet = useFleet(values.pollSeconds);
   const data = fleet.data ?? null;
+  const progress = values.queueProgress;
+  const queue = queueCards(data?.cards ?? [], progress);
+  const nextAction = queue[0];
+  const opened = watching === null || data === null ? null : findOpened(data.cards, watching);
+  const viewingQueue = (single ? (tab === "chat" ? cachedSinglePane : tab) : rightPane) === "queue";
 
   /**
-   * While a card is open, Mission Control's chat is about it: the card's pill is on the composer, and
-   * stays through every message sent, until the view closes. A pill the user put there themselves,
-   * or took off, is left as they had it.
+   * The expanded card or current Action Queue item supplies the composer pill. On a single-pane
+   * layout, switching to Coordinator keeps the queue item available to talk about.
    */
-  const viewed = watching === null || data === null ? null : findOpened(data.cards, watching);
+  const viewed = viewingQueue ? nextAction ?? null : opened;
   const viewedAbout =
     viewed === null
       ? null
@@ -231,11 +242,12 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     });
   }
 
-  function save(patch: Partial<DisplaySettings>): void {
+  function save(patch: Partial<DisplaySettings>, immediate = false): void {
     setOverride((current) => ({ ...current, ...patch }));
     pending.current = { ...pending.current, ...patch };
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => flush(0), SAVE_DELAY_MS);
+    if (immediate) flush(0);
+    else saveTimer.current = setTimeout(() => flush(0), SAVE_DELAY_MS);
   }
 
   // Once the stored document says what was drawn, the local copy has done its
@@ -254,10 +266,11 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     // As with the wide layout's Crew switch: pressing Crew again goes back to the board.
     if (next === "board" && tab === "board") setWatching(null);
     cachedTab = next;
+    if (next !== "chat") cachedSinglePane = next;
     setTabState(next);
   }
 
-  function setRightPane(next: "board" | "files"): void {
+  function setRightPane(next: Exclude<Tab, "chat">): void {
     // Choosing Crew while it is already showing is the way back from a watched crewmate to the board.
     if (next === "board" && rightPane === "board") setWatching(null);
     cachedRightPane = next;
@@ -265,6 +278,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
   }
 
   function setWatching(next: string | null): void {
+    returnToQueue.current = false;
     if (next === null) {
       openedDraft = null;
       openedFromChat = false;
@@ -376,6 +390,10 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       });
   }, [unseen, markSeen, refresh]);
 
+  function sendDecision(text: string, onFailure?: () => void, onSent?: () => void): boolean {
+    return coordinator !== null && coordinatorSender.send(userMessage(text, []), onFailure, onSent);
+  }
+
   /**
    * A suggestion, a card's action or a held card's answer is sent to Mission
    * Control at once, through the chat's own path, and the chat comes into view to
@@ -384,12 +402,13 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
    * still gets through is refused by the sender, so a double press sends once.
    */
   function tellCoordinator(text: string, onFailure?: () => void, onSent?: () => void): boolean {
-    if (coordinator === null || !coordinatorSender.send(userMessage(text, []), onFailure, onSent)) return false;
+    if (!sendDecision(text, onFailure, onSent)) return false;
     if (single) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
     return true;
   }
   const toCoordinator: CoordinatorAsk = { sending: coordinatorSender.sending, send: tellCoordinator };
+  const toActionCoordinator: CoordinatorAsk = { sending: coordinatorSender.sending, send: sendDecision };
 
   /**
    * A card Mission Control embedded in a reply (`[[card: …]]`), drawn as the board draws it, from the live
@@ -614,6 +633,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
     { id: "chat", label: "Coordinator", icon: "MessageSquare" },
     { id: "board", label: "Board", icon: "SquareKanban" },
     { id: "files", label: "Files", icon: "Folder" },
+    { id: "queue", label: "Action Queue", icon: "ListChecks" },
   ];
   const attention = boardAttention(data?.cards ?? []);
 
@@ -646,7 +666,9 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
                 ]
               : item.id === "chat"
                 ? badge(coordinator.pendingPermissions, theme.colors.statusWarning, "Mission Control is waiting for your answer")
-                : null;
+                : item.id === "queue"
+                  ? badge(queue.length, theme.colors.accent, `${queue.length} in Action Queue`)
+                  : null;
           return (
             <Pressable
               key={item.id}
@@ -687,6 +709,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
             options={[
               { value: "board", label: "Board" },
               { value: "files", label: "Files" },
+              { value: "queue", label: queue.length === 0 ? "Action Queue" : `Action Queue (${queue.length})` },
             ]}
             onChange={setRightPane}
             touch={touch}
@@ -833,7 +856,47 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       </RunOpenContext.Provider>
     </BoardTasksContext.Provider>
   );
-  const opened = watching === null ? null : findOpened(data.cards, watching);
+  function answerCard(card: FleetCard): void {
+    const revision = actionRevision(card);
+    updateQueueProgress("answered", revision);
+  }
+
+  function updateQueueProgress(key: keyof QueueProgress, revision: string): void {
+    const current = queueProgress.current;
+    const next = { ...current, [key]: [...current[key].filter((item) => item !== revision), revision].slice(-100) };
+    queueProgress.current = next;
+    save({ queueProgress: next }, true);
+  }
+
+  const actionQueue = (
+    <BoardTasksContext.Provider value={{ ...boardTasks, open: (card) => {
+      setTab("board");
+      setRightPane("board");
+      setWatching(openedRef(card));
+      returnToQueue.current = true;
+    } }}>
+      {nextAction === undefined ? (
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <Text style={{ color: theme.colors.foregroundMuted }}>You’re caught up. New reviews and decisions will appear here.</Text>
+        </View>
+      ) : (
+        <ActionPanel
+          key={actionRevision(nextAction)}
+          card={nextAction}
+          theme={theme}
+          compact={compact}
+          toCoordinator={toActionCoordinator}
+          count={queue.length}
+          answered={false}
+          stale={data.stale === true}
+          onAnswered={() => answerCard(nextAction)}
+          onOpenFile={openFile}
+          onDefer={() => updateQueueProgress("deferred", actionRevision(nextAction))}
+        />
+      )}
+    </BoardTasksContext.Provider>
+  );
+
   const openedAgent = opened?.agent ?? null;
   const crewView =
     watching === null ? (
@@ -848,8 +911,12 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
         compact={compact}
         onBack={() => {
           const backToChat = openedFromChat;
+          const backToQueue = returnToQueue.current;
           setWatching(null);
-          if (backToChat) setTab("chat");
+          if (backToQueue) {
+            setTab("queue");
+            setRightPane("queue");
+          } else if (backToChat) setTab("chat");
         }}
         onOpen={
           navigation === undefined || openedAgent === null
@@ -864,6 +931,10 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
         onChanged={refresh}
         toCoordinator={toCoordinator}
         onOpenFile={openFile}
+        toActionCoordinator={toActionCoordinator}
+        actionStale={data.stale === true}
+        actionAnswered={opened !== null && progress.answered.includes(actionRevision(opened))}
+        onActionAnswered={() => { if (opened !== null) answerCard(opened); }}
       />
     );
   const crew = <BoardTasksContext.Provider value={boardTasks}>{crewView}</BoardTasksContext.Provider>;
@@ -884,6 +955,8 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
               chat
             ) : shownTab === "board" ? (
               crew
+            ) : shownTab === "queue" ? (
+              actionQueue
             ) : (
               <FilesView theme={theme} compact={compact} request={filesRequest} />
             )}
@@ -964,7 +1037,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           </View>
         ) : (
           <View style={{ flex: 1, minWidth: 0 }}>
-            {rightPane === "board" ? crew : <FilesView theme={theme} compact={false} request={filesRequest} />}
+            {rightPane === "board" ? crew : rightPane === "queue" ? actionQueue : <FilesView theme={theme} compact={false} request={filesRequest} />}
           </View>
         )}
       </View>

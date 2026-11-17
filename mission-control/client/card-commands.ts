@@ -35,6 +35,7 @@ const TOOLS: Readonly<Record<ColumnId, readonly Tool[]>> = {
   queued: [],
   working: ["interrupt"],
   blocked: [],
+  review: [],
   idle: ["relaunch"],
   waiting: [],
   parked: ["relaunch"],

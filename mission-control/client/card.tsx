@@ -72,6 +72,7 @@ const STATE_WORDS: Record<string, string> = {
   working: "Working",
   "needs-decision": "Needs a decision",
   blocked: "Blocked",
+  review: "Ready for review",
   paused: "Paused",
   done: "Done",
   failed: "Failed",

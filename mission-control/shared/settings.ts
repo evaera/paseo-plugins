@@ -16,6 +16,10 @@ export const displaySettings = defineSettings({
   schema: z.object({
     /** Cards the user dragged, as rank keys, highest first; see `client/order.ts`. */
     cardOrder: z.array(z.string()).default([]),
+    queueProgress: z.object({
+      deferred: z.array(z.string()).max(100),
+      answered: z.array(z.string()).max(100),
+    }).default({ deferred: [], answered: [] }),
     /**
      * The newest Mission Control message the user has seen, by its timeline sequence number, keyed by
      * Mission Control's agent id: what the chat's "New" line is drawn against. Host-scoped, so a message

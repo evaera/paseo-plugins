@@ -40,6 +40,8 @@ describe("crewColumn", () => {
     expect(crewColumn(agent(), { state: "blocked", text: "" })).toBe("blocked");
     expect(crewColumn(agent(), { state: "needs-decision", text: "" })).toBe("blocked");
     expect(crewColumn(agent(), { state: "paused", text: "" })).toBe("parked");
+    expect(crewColumn(agent(), { state: "review", text: "" }, true)).toBe("review");
+    expect(crewColumn(agent({ status: "running" }), { state: "review", text: "" })).toBe("working");
     expect(crewColumn(agent(), { state: "failed", text: "" })).toBe("failed");
     expect(crewColumn(agent(), { state: "working", text: "" })).toBe("idle");
   });
@@ -88,6 +90,7 @@ describe("backlogColumn", () => {
   it("puts a user's hold with the blocked work and everything else where its section says", () => {
     expect(backlogColumn(item({ kind: "user" }))).toBe("blocked");
     expect(backlogColumn(item({ hold: "which?" }))).toBe("blocked");
+    expect(backlogColumn(item({ review: "Ready to land" }))).toBe("review");
     expect(backlogColumn(item({}))).toBe("queued");
     expect(backlogColumn(item({ section: "in-flight", waiting: "review" }))).toBe("waiting");
     expect(backlogColumn(item({ waiting: "review", hold: "merge?" }))).toBe("blocked");

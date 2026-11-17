@@ -9,7 +9,7 @@
  */
 import type { AgentSummary, CrewReportSummary } from "../shared/fleet";
 
-export type StateTone = "success" | "warning" | "danger" | "accent" | "muted";
+export type StateTone = "success" | "warning" | "danger" | "accent" | "muted" | "review";
 
 export interface WorkerState {
   icon: string;
@@ -26,6 +26,8 @@ export function workerState(
   if (agent.status === "initializing") return { icon: "Zap", label: "Starting", tone: "success" };
   if (agent.status === "running") return { icon: "Zap", label: "Working", tone: "success" };
   switch (report?.state) {
+    case "review":
+      return { icon: "ClipboardCheck", label: "Ready for review", tone: "review" };
     case "done":
       return { icon: "CircleCheck", label: "Done", tone: "accent" };
     case "resolved":

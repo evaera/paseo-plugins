@@ -19,6 +19,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 
 import { steerCrew, type AgentSummary, type CrewReportSummary, type FleetCard } from "../shared/fleet";
+import { actionRevision, isActionCard } from "./action-order";
+import { ActionPanel } from "./action-queue";
 import { activityRows, type ActivityRow, type PlanStatus } from "./activity-rows";
 import { cardDebriefTarget, useBoardTasks } from "./board-tasks";
 import { CardDecisionStrip, CardSheet } from "./card";
@@ -95,8 +97,12 @@ export function CardView({
   onOpen,
   onChanged,
   toCoordinator,
+  toActionCoordinator = toCoordinator,
   initialDraft = null,
   onOpenFile = null,
+  actionAnswered = false,
+  actionStale = false,
+  onActionAnswered = () => {},
 }: {
   /** Null once the card has left the board: its worker ended, its task dropped. */
   card: FleetCard | null;
@@ -107,16 +113,23 @@ export function CardView({
   onOpen: (() => void) | null;
   onChanged: () => void;
   toCoordinator: CoordinatorAsk | null;
+  toActionCoordinator?: CoordinatorAsk | null;
   /** A step for the card to open on, from its context menu. */
   initialDraft?: DraftKind | null;
   /** Opens a home file in the Files view, for a link in the worker's transcript; null links none. */
   onOpenFile?: ((path: string) => void) | null;
+  actionAnswered?: boolean;
+  actionStale?: boolean;
+  onActionAnswered?: () => void;
 }) {
   const [width, setWidth] = useState(0);
   const agent = card?.agent ?? null;
   const tasks = useBoardTasks();
   const debriefTarget = card === null ? null : cardDebriefTarget(card);
   const canDebrief = debriefTarget !== null && tasks.debrief != null && tasks.canDebrief?.(debriefTarget.serverId) !== false;
+  const [actionHidden, setActionHidden] = useState(false);
+  const hasAction = card !== null && isActionCard(card);
+  const showAction = hasAction && !actionHidden;
   const sideBySide = !compact && width >= SIDE_BY_SIDE_WIDTH;
   const tier = useLayoutTier();
   const touch = useTouchTargets(tier);
@@ -153,7 +166,7 @@ export function CardView({
    * takes the transcript's place: neither is usable in half of a narrow pane. What the card asks the
    * user stays over the transcript while it is folded, so a decision never needs Details opened.
    */
-  const foldable = !sideBySide && agent !== null;
+  const foldable = !showAction && !sideBySide && agent !== null;
   const [unfolded, setUnfolded] = useState(detailsOpen);
   const folded = foldable && !unfolded;
   /** The worker's context use, reported up by the transcript, which reads the timeline it comes from. */
@@ -236,7 +249,7 @@ export function CardView({
   const subtitle = workerTitle !== null && workerTitle.trim() !== "" && workerTitle !== title ? workerTitle : null;
 
   return (
-    <View ref={root} style={[styles.screen, keyboard > 0 ? { paddingBottom: keyboard } : null]}>
+    <View ref={root} style={[styles.screen, keyboard > 0 && !showAction ? { paddingBottom: keyboard } : null]}>
       {agent === null ? (
         <View style={styles.bar}>
           <View style={styles.barButton} onLayout={onBackLayout}>
@@ -245,6 +258,10 @@ export function CardView({
           <Text style={styles.title} numberOfLines={1} onLayout={onTitleLayout}>
             {title}
           </Text>
+          {hasAction ? (
+            <IconButton icon={showAction ? "FileText" : "ClipboardCheck"} label={showAction ? "Show details" : "Show action"}
+              theme={theme} onPress={() => setActionHidden(!actionHidden)} touch={touch} />
+          ) : null}
         </View>
       ) : (
         <View style={styles.slimBar}>
@@ -281,7 +298,11 @@ export function CardView({
               </View>
             ) : null}
           </Pressable>
-          {!canDebrief || debriefTarget === null ? null : (
+          {hasAction ? (
+            <IconButton icon={showAction ? "MessageSquare" : "ClipboardCheck"} label={showAction ? "Show worker chat" : "Show action"}
+              theme={theme} onPress={() => setActionHidden(!actionHidden)} touch={touch} />
+          ) : null}
+          {showAction || !canDebrief || debriefTarget === null ? null : (
             <View style={styles.barButton} onLayout={onDiffLayout}>
               <IconButton icon="FileDiff" label={DIFF_LABEL} showLabel={labels.open} theme={theme} onPress={() => tasks.debrief?.(debriefTarget, "diff")} touch={touch} />
             </View>
@@ -301,10 +322,15 @@ export function CardView({
         style={[agent === null ? styles.body : styles.slimBody, sideBySide || agent === null ? styles.bodySide : null]}
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
       >
-        {folded && card !== null ? <CardDecisionStrip card={card} theme={theme} toCoordinator={toCoordinator} /> : null}
+        {showAction && card !== null ? (
+          <ActionPanel key={actionRevision(card)} card={card} theme={theme} compact={compact} toCoordinator={toActionCoordinator}
+            answered={actionAnswered} stale={actionStale} onAnswered={onActionAnswered} onOpenFile={onOpenFile} />
+        ) : null}
+        {!hasAction && folded && card !== null ? <CardDecisionStrip card={card} theme={theme} toCoordinator={toCoordinator} /> : null}
         {/* Hidden rather than unmounted, either side of the fold, so a half-typed note, answer or message survives it. */}
         <ScrollView
           style={[
+            showAction ? { display: "none" as const } : null,
             agent === null ? styles.cardAlone : sideBySide ? styles.cardColumn : null,
             foldable ? (folded ? { display: "none" as const } : { flex: 1, maxHeight: "100%" as const }) : null,
           ]}
@@ -315,7 +341,7 @@ export function CardView({
           {sheet}
         </ScrollView>
         {agent === null ? null : (
-          <View style={[styles.transcriptFrame, foldable && !folded ? { display: "none" as const } : null]}>
+          <View style={[styles.transcriptFrame, showAction || (foldable && !folded) ? { display: "none" as const } : null]}>
             {/* A bare `[[debrief]]` the worker writes means its own work. */}
             <DebriefSelfContext.Provider value={card}>
               <ActivityTranscript

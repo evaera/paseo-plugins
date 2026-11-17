@@ -3,6 +3,21 @@ import { describe, expect, it } from "vitest";
 import { parseCrewReport, reportUrl } from "./crew-report";
 
 describe("parseCrewReport", () => {
+  it("uses only the latest review packet and discards it when work resumes", () => {
+    const first = '\x60\x60\x60action-queue\n{"specimens":"![Old](old.gif)"}\n\x60\x60\x60\nreview: First pass';
+    const second = '\x60\x60\x60action-queue\n{"specimens":"![New](new.gif)","debrief":["diff","plans"],"actions":[{"label":"Still clipping","prompt":"Fix clipping in the current layout."}]}\n\x60\x60\x60\nreview: Revised layout';
+    expect(parseCrewReport(`${first}\n\n${second}`)).toEqual({
+      state: "review",
+      text: "Revised layout",
+      packet: {
+        specimens: "![New](new.gif)",
+        debrief: ["diff", "plans"],
+        actions: [{ label: "Still clipping", prompt: "Fix clipping in the current layout." }],
+      },
+    });
+    expect(parseCrewReport(`${first}\n\nworking: Fixing clipping`)).toEqual({ state: "working", text: "Fixing clipping" });
+    expect(parseCrewReport("review: No attachments")).toEqual({ state: "review", text: "No attachments" });
+  });
   it("reads the status line at the end of the last message", () => {
     expect(parseCrewReport("Opened the PR and CI is green.\n\ndone: PR https://github.com/o/r/pull/42")).toEqual({
       state: "done",
