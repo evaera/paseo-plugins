@@ -25,6 +25,9 @@ import { writeBoardOrder } from "./server/board-order";
 import { readNotes, writeNotes } from "./server/notes";
 import { renameTask } from "./server/rename";
 import { requestDebriefOpen } from "./server/debrief";
+import { readToolbar } from "./server/home";
+import { hasToolbarAction, runToolbarAction } from "./server/toolbar";
+import { activateToolbarAction, readWorkspaceToolbar } from "./shared/toolbar";
 import { Runs } from "./server/runs";
 import { HostClients, withTimeout } from "./server/hosts";
 import { sendWithoutInterrupting } from "./server/send";
@@ -223,6 +226,14 @@ export default function contribute(server: PluginServerContext) {
 
   // The chat's [[run: ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦]] embeds; see server/runs.ts.
   const runs = new Runs(home);
+  metrics.handle(readWorkspaceToolbar, async () => ({ items: (await readToolbar(await home())).workspaces }));
+  metrics.handle(activateToolbarAction, async ({ action, workspaceId, placement }, { paseo }) => {
+    const directory = await home();
+    if (placement === "workspaces" && workspaceId === null) throw new Error("A workspace toolbar action needs a workspace.");
+    const toolbar = await readToolbar(directory);
+    if (!hasToolbarAction(toolbar[placement], action)) throw new Error("This toolbar button changed. Use the current toolbar.");
+    return runToolbarAction(paseo, runs, directory, workspaceId, action, (text) => askCoordinator(paseo, { text }));
+  });
   metrics.handle(startRun, ({ project, command }, { paseo }) => runs.start(paseo, project, command));
   metrics.handle(runStatus, ({ runId }, { paseo }) => runs.status(paseo, runId));
   metrics.handle(stopRun, async ({ runId }, { paseo }) => {

@@ -107,6 +107,7 @@ them against the live crew, and carry on. Your home has three kinds of record:
 | `prompts/charter.md` | What this charter is written from. The user's to edit, as is `prompts/charter.new.md` when there is one; leave both alone. |
 | `state/backlog.md` | Every work item, under `## In flight`, `## Queued` and `## Done`. The Mission Control board draws from it. |
 | `state/projects.md` | How each project ships, one line each: `- <name> [<mode> +yolo] - <path or clone URL> - <description>`. Which projects exist is Paseo's to say (§0); this file holds the user's delivery choices for them. |
+| `state/toolbar.json` | Persistent user-requested buttons for this panel and workspace headers. |
 | `state/suggestions.md` | What the user might want to do next, as buttons on the Mission Control board. Yours to keep current. |
 | `state/suggestions-dismissed.md` | Suggestions the user removed from the board, newest last. The plugin writes it; read it, and leave it alone. |
 | `state/board-order.md` | The user's priority within each board column, top first. The plugin writes it whenever they drag a card; read it, and leave it alone. |
@@ -182,6 +183,35 @@ gate, not one per question. Close it only with the user's recorded answer.
 or what to raise with them, and follow it: start Queued items from the top, and bring what waits on the
 user up in its order. A task it does not list comes after the ones it does. It is the only
 priority: write no `(priority: …)` field, and take one off a line whenever you rewrite it.
+
+**Toolbar.** When the user asks for a persistent button, edit `state/toolbar.json`. Keep the existing
+entries and order unless the user asks to change them. The file is JSON with a `missionControl`
+array for this panel and a `workspaces` array for native buttons in every workspace on this host.
+Add the same entry to both arrays when requested.
+
+- A command is `{"type":"run","label":"Play","icon":"Play","command":"npm run play"}`. Use the
+  actual command the user requested or the project defines. An optional `"project":"Game"`
+  selects a registered Paseo project as the command's directory. Otherwise workspace buttons
+  use the current workspace, and panel buttons use the coordinator's workspace or home.
+- Choose `"terminal":"paseo"` for a new terminal in the current Paseo workspace,
+  `"terminal":"floating"` for a visible system terminal on the daemon host, or `"terminal":"none"`
+  to start without a terminal. An omitted terminal uses the floating system terminal.
+- A button that sends a message to you uses
+  `{"type":"prompt","label":"Review","icon":"ClipboardCheck","prompt":"Review the current changes."}`.
+  Keep prompts close to their labels, with every requested action apparent from the label.
+- A dropdown is `{"type":"menu","label":"Build","icon":"Hammer","items":[...]}`. Its items can
+  include nested menus. A group uses `{"type":"group","label":"Game","items":[...]}`.
+  Groups share a pill in this panel and use their label as a native dropdown in workspace headers.
+- Use PascalCase icon names from the [Lucide catalog](https://lucide.dev/icons/), such as Play,
+  Hammer, Pencil, and Upload. Paseo renders these as its standard icons.
+- Put a variable name inside double braces to substitute its value. Available names are
+  `workspace.path`, `workspace.name`, `workspace.id`, `project.path`, `project.name`,
+  `project.id`, `cwd`, and `home`. Workspace values come from the button's workspace.
+  Project values come from the selected project or the workspace's project. Commands quote
+  substitutions automatically for the shell, so place them outside other quotes.
+  Prompts substitute plain text.
+
+Save valid JSON and leave execution to a press by the user. A toolbar edit itself runs nothing.
 
 **Action Queue.** Use `(review: <what is ready to judge>)` for a completed task
 you place in Review yourself, and `(hold: <what the user needs to decide>)` for a decision

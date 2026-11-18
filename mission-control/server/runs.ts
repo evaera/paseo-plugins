@@ -62,7 +62,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** PowerShell 7 when it is on `PATH`, else Windows PowerShell, which every Windows has. */
-async function windowsPowerShell(env: NodeJS.ProcessEnv): Promise<string> {
+export async function windowsPowerShell(env: NodeJS.ProcessEnv): Promise<string> {
   const dirs = (env.PATH ?? env.Path ?? "").split(";").filter((dir) => dir !== "");
   for (const dir of dirs) {
     const candidate = join(dir, "pwsh.exe");
@@ -96,6 +96,17 @@ export class Runs {
       projectName = match.project.projectCustomName || match.project.projectDisplayName;
     }
 
+    return this.startTerminal(paseo, cwd, projectName, command);
+  }
+
+  async startTerminal(
+    paseo: PaseoApi,
+    cwd: string,
+    projectName: string | null,
+    command: string,
+    owner: ReturnType<PaseoApi["workspaces"]["ref"]> | null = null,
+    name = terminalName(command),
+  ): Promise<{ runId: string; workspaceId: string; terminalId: string; cwd: string; projectName: string | null }> {
     const dir = runsDir();
     await mkdir(dir, { recursive: true });
     void sweep(dir);
@@ -104,8 +115,8 @@ export class Runs {
     const shell = process.platform === "win32" ? await windowsPowerShell(process.env) : (process.env.SHELL ?? "/bin/sh");
     const launch = runLaunch(command, statusFile, process.platform, shell);
 
-    const workspace = await paseo.workspaces.open(cwd);
-    const terminal = await workspace.terminals.create({ cwd, name: terminalName(command), command: launch.command, args: launch.args });
+    const workspace = owner ?? await paseo.workspaces.open(cwd);
+    const terminal = await workspace.terminals.create({ cwd, name, command: launch.command, args: launch.args });
     this.runs.set(runId, { terminalId: terminal.id, workspaceId: workspace.id, statusFile, tail: [], exitCode: null });
     return { runId, workspaceId: workspace.id, terminalId: terminal.id, cwd, projectName };
   }

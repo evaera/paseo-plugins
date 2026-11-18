@@ -42,6 +42,7 @@ import { parseBacklog } from "./backlog";
 import { renderCharter } from "./charter";
 import { syncCharter } from "./charter-file";
 import { FileChangedError, readTextFile, replaceTextIfUnchanged, writeTextFile, type WriteHooks } from "./files";
+import { ToolbarSchema } from "../shared/toolbar";
 import { parseDismissed, parseSuggestions, withDismissal, withoutSuggestion } from "./suggestions";
 import { TEMPLATES, fill, readTemplate, type TemplatePath } from "./templates";
 import { seedWatches } from "./watch-files";
@@ -53,6 +54,7 @@ const RECORDS: readonly TemplatePath[] = [
   TEMPLATES.learnings,
   TEMPLATES.backlog,
   TEMPLATES.suggestions,
+  TEMPLATES.toolbar,
   TEMPLATES.suggestionsDismissed,
   TEMPLATES.icon,
 ];
@@ -116,6 +118,17 @@ async function readOptional(path: string): Promise<string | null> {
 export async function readBacklog(home: string): Promise<BacklogItem[]> {
   const markdown = await readOptional(join(home, "state", "backlog.md"));
   return markdown === null ? [] : parseBacklog(markdown);
+}
+
+export async function readToolbar(home: string) {
+  const json = await readOptional(join(home, TEMPLATES.toolbar));
+  if (json === null || !json.trim()) return ToolbarSchema.parse({});
+  const result = ToolbarSchema.safeParse(JSON.parse(json.trim()));
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    throw new Error(issue ? `${issue.path.join(".") || "root"}: ${issue.message}` : "Invalid toolbar");
+  }
+  return result.data;
 }
 
 /** The board's suggestions: `state/suggestions.md`, without any the user has dismissed. */

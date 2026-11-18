@@ -1,6 +1,7 @@
 import type { PluginClientContext, PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
 
 import { FleetSurface, bindSettingsOpener } from "./client/fleet";
+import { startWorkspaceToolbar } from "./client/workspace-toolbar";
 import { AgentPanel, WorkspacePanel } from "./client/panels";
 import { FLEET_SCREEN_ID } from "./client/screen";
 import { SettingsScreen } from "./client/settings-screen";
@@ -116,7 +117,9 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
+  const stopToolbar = startWorkspaceToolbar(client);
   return () => {
+    stopToolbar();
     bindSettingsOpener(null);
   };
 }

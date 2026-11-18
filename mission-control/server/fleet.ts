@@ -26,7 +26,7 @@ import { resolveHome } from "./config";
 import { parseCrewReport, reportUrl } from "./crew-report";
 import { readCharterState } from "./charter-file";
 import { debriefInfo, debriefInstalled } from "./debrief";
-import { isHomeReady, readBacklog, readProjects, readSuggestions } from "./home";
+import { isHomeReady, readBacklog, readProjects, readSuggestions, readToolbar } from "./home";
 import type { AgentListOptions, PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 import { HOST_TIMEOUT_MS, withTimeout, type CrewHost, type HostClients } from "./hosts";
 import { timelineTails, type TimelineTails } from "./timeline-tails";
@@ -438,7 +438,7 @@ export async function loadFleet(
     warnings.push(`The backlog could not be read: ${describe(error)}`);
     return [];
   });
-  const [homeReady, backlog, foundCrew, projects, suggestions, coordinator, agentTools, charter, watches] = await Promise.all([
+  const [homeReady, backlog, foundCrew, projects, suggestions, toolbar, coordinator, agentTools, charter, watches] = await Promise.all([
     isHomeReady(home),
     backlogRead,
     backlogRead.then((items) => listCrew(paseo, hosts, namedCrew(items, config.coordinatorAgentId), locations, warnings)),
@@ -449,6 +449,10 @@ export async function loadFleet(
     readSuggestions(home).catch((error: unknown) => {
       warnings.push(`The suggestions could not be read: ${describe(error)}`);
       return [];
+    }),
+    readToolbar(home).catch((error: unknown) => {
+      warnings.push(`state/toolbar.json could not be read: ${describe(error)}`);
+      return undefined;
     }),
     resolveCoordinator(paseo, config),
     readAgentTools(paseo),
@@ -516,6 +520,7 @@ export async function loadFleet(
     cards,
     projects,
     suggestions,
+    ...(toolbar === undefined ? {} : { toolbar }),
     watches,
     agentTools,
     // A home nobody has launched in has no charter of the user's to be out of date.

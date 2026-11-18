@@ -10,6 +10,7 @@ import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
 import { UserMessageSchema } from "./attachments";
+import { ToolbarSchema } from "./toolbar";
 
 /**
  * The labels a crewmate is created with. The charter tells Mission Control to
@@ -262,6 +263,7 @@ export const FleetSchema = z.object({
   projects: z.array(ProjectSchema),
   /** What the user might do next, most likely first; empty hides the card and the tab. */
   suggestions: z.array(SuggestionSchema),
+  toolbar: ToolbarSchema.optional(),
   /** The home's watch scripts, by name; empty hides the card. */
   watches: z.array(WatchSummarySchema),
   /**

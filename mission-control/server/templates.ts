@@ -34,6 +34,7 @@ export const TEMPLATES = {
   wake: "prompts/wake.md",
   projects: "state/projects.md",
   suggestions: "state/suggestions.md",
+  toolbar: "state/toolbar.json",
   suggestionsDismissed: "state/suggestions-dismissed.md",
   watchesReadme: "watches/README.md",
   watchPr: "watches/pr-watch",

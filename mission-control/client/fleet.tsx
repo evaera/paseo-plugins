@@ -59,6 +59,7 @@ import { useCoordinatorSender } from "./coordinator-send";
 import type { CoordinatorAsk } from "./card-answer";
 import { ResizeHandle, clampShare } from "./resize-handle";
 import { RunOpenContext } from "./run-embed";
+import { ToolbarControls } from "./toolbar";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 import { FONT_SIZE } from "./type-scale";
 import { LayoutTierContext, TOUCH_TARGET, besideBoardWidth, layoutTier } from "./layout-tier";
@@ -689,6 +690,18 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
       </View>
     );
 
+  const toolbarItems = data?.toolbar?.missionControl ?? [];
+  const toolbar = toolbarItems.length === 0 ? null : (
+    <ToolbarControls
+      key={JSON.stringify(toolbarItems)}
+      items={toolbarItems}
+      workspaceId={coordinator?.workspaceId ?? null}
+      theme={theme}
+      touch={touch}
+      openWorkspace={navigation === undefined ? undefined : (workspaceId) => navigation.openWorkspace({ workspaceId })}
+    />
+  );
+
   // The host's own header already says "Mission Control" above the screen; a phone or a medium layout has
   // no room to say it twice, so there the row is the tabs, the coordinator's state and the buttons.
   const header = (
@@ -702,6 +715,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           <Chip theme={theme} text={`Coordinator · ${agentStatusLabel(coordinator)}`} color={agentStatusTone(theme, coordinator)} />
         )}
         {topTabs === null ? <View style={styles.spacer} /> : null}
+        {single ? null : toolbar}
         {tier === "wide" && coordinator !== null && data !== null && !values.boardCollapsed ? (
           <Segmented
             theme={theme}
@@ -733,6 +747,7 @@ function FleetScreen({ theme, layout, navigation }: PluginScreenProps) {
           />
         )}
       </View>
+      {single ? toolbar : null}
     </View>
   );
 

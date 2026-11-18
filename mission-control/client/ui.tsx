@@ -157,19 +157,25 @@ export function Segmented<Value extends string>({
   /** `TOUCH_TARGET` tall, for the layouts a finger drives. */
   touch?: boolean;
 }) {
+  const [hovered, setHovered] = useState<Value | null>(null);
   const colors = theme.colors;
   const styles = useMemo(
     () => ({
       frame: {
         flexDirection: "row" as const,
         height: touch ? TOUCH_TARGET : 28,
-        borderRadius: 8,
+        padding: 2,
+        gap: 2,
+        borderRadius: 9,
         borderWidth: 1,
         borderColor: colors.border,
         backgroundColor: colors.surface1,
         overflow: "hidden" as const,
       },
-      segment: { justifyContent: "center" as const, paddingHorizontal: 12 },
+      segment: { justifyContent: "center" as const, paddingHorizontal: 10, borderRadius: 6 },
+      hovered: { backgroundColor: colors.surface2 },
+      selectedHover: { opacity: 0.86 },
+      pressed: { opacity: 0.68 },
       selected: { backgroundColor: colors.accent },
       label: { color: colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
       labelSelected: { color: colors.accentForeground, fontWeight: "600" as const },
@@ -185,7 +191,14 @@ export function Segmented<Value extends string>({
             key={option.value}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
-            style={[styles.segment, selected ? styles.selected : null]}
+            onHoverIn={() => setHovered(option.value)}
+            onHoverOut={() => setHovered((current) => current === option.value ? null : current)}
+            style={({ pressed }) => [
+              styles.segment,
+              selected ? styles.selected : null,
+              hovered === option.value ? (selected ? styles.selectedHover : styles.hovered) : null,
+              pressed ? styles.pressed : null,
+            ]}
             onPress={() => onChange(option.value)}
           >
             <Text style={[styles.label, selected ? styles.labelSelected : null]}>{option.label}</Text>
