@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { CREW_LABELS, type AgentSummary, type BacklogItem } from "../shared/fleet";
 import { parseBacklog } from "./backlog";
-import { backlogColumn, buildCards, closingText, crewColumn } from "./fleet";
+import { parseCrewReport } from "./crew-report";
+import { applyDispositions, backlogColumn, buildCards, closingText, crewColumn, followThrough } from "./fleet";
 import type { TimelineItem } from "./host-types";
 
 function agent(overrides: Partial<AgentSummary> = {}): AgentSummary {
@@ -100,6 +101,104 @@ describe("backlogColumn", () => {
 });
 
 describe("buildCards", () => {
+  it("sends the authored title or opening plan heading to clients while retaining the backlog identity", () => {
+    const backlog = parseBacklog("## In flight\n- [ ] fix-login - Original task (review: Review the plan)");
+    const body = "# Safe NPC transfers\n\nReserve the stack before recording its receipt.";
+    for (const [title, expected] of [["Review the transfer receipt", "Review the transfer receipt"], [undefined, "Safe NPC transfers"]]) {
+      const message = "\x60\x60\x60action-queue\n" + JSON.stringify({ title, specimens: body }) + "\n\x60\x60\x60\nreview: Ready";
+      const [card] = buildCards(backlog, [{ agent: agent(), report: parseCrewReport(message) }]);
+      expect(card).toMatchObject({ title: expected, taskId: "fix-login", backlog: { title: "Original task" }, report: { packet: { specimens: body } } });
+    }
+  });
+
+  it("accepts an active receipt only for this shared assignment and running turn", () => {
+    const rows = parseBacklog(`## In flight
+- [ ] corpse-foot-support - Fix trailing feet (agent: a1)
+- [ ] inactive-peer-death-pose - Land disconnect guard (agent: a1)
+- [ ] other-work - Another assignment (agent: a1)`);
+    const worker = agent({ status: "running", activeTurnId: "landing-turn", labels: { [CREW_LABELS.task]: "corpse-foot-support" } });
+    const project = (member = worker) => {
+      const cards = buildCards(rows, [{ agent: member, report: null }]);
+      return applyDispositions(cards, followThrough(cards, () => true));
+    };
+    const revision = project().followThrough.find((entry) => entry.taskId === "inactive-peer-death-pose")!.revision;
+    rows[1] = parseBacklog(`## In flight\n- [ ] inactive-peer-death-pose - Land disconnect guard (agent: a1) (active: ${revision} Worker owns the approved local landing.)`)[0]!;
+    const handled = project();
+    expect(handled.cards.find((card) => card.taskId === "inactive-peer-death-pose")).toMatchObject({
+      column: "working", disposition: { kind: "active", revision, next: "Worker owns the approved local landing." },
+    });
+    expect(handled.followThrough.map((entry) => entry.taskId)).toEqual(["other-work"]);
+    expect(project()).toEqual(handled);
+    expect(project({ ...worker, activeTurnId: "new-turn" }).followThrough).toContainEqual(expect.objectContaining({
+      taskId: "inactive-peer-death-pose", revision: expect.not.stringMatching(revision),
+    }));
+    expect(project({ ...worker, status: "idle", activeTurnId: null }).cards.find((c) => c.taskId === "inactive-peer-death-pose")?.column).toBe("idle");
+    rows[0]!.waiting = "not this turn";
+    const reassigned = buildCards(rows, [{ agent: { ...worker, status: "idle" }, report: { state: "paused", text: "Original assignment waits" } }]);
+    expect(reassigned.find((c) => c.taskId === "inactive-peer-death-pose")).toMatchObject({ column: "idle", report: null });
+    expect(reassigned.find((c) => c.taskId === "corpse-foot-support")?.column).toBe("waiting");
+    rows[1]!.waiting = "upstream owner";
+    expect(project().cards.find((c) => c.taskId === "inactive-peer-death-pose")?.column).toBe("waiting");
+  });
+
+  it("keeps a durable cargo-fit park across closure and a missing worker until the coordinator reopens it", () => {
+    const rows = parseBacklog("## In flight\n- [ ] elastic-cargo-pants - Cargo fit (agent: a1) (parked: Reopen for a scoped inner-thigh pass.)");
+    for (const crew of [[], [{ agent: agent({ status: "closed" }), report: null }], [{ agent: agent(), report: null }]]) {
+      const cards = buildCards(rows, crew);
+      expect(cards[0]?.column).toBe("parked");
+      expect(followThrough(cards, () => true)).toEqual([]);
+    }
+    delete rows[0]!.parked;
+    expect(buildCards(rows, [{ agent: agent({ status: "running" }), report: null }])[0]?.column).toBe("working");
+  });
+
+  it("returns a previously parked shirt to the running worker after Eryn resumes it", () => {
+    const rows = parseBacklog("## In flight\n- [ ] oblique-shirt-layer - Fix the shirt (agent: a1)");
+    const stopped = { agent: agent(), report: { state: "paused" as const, text: "Lower-cup trials preserved." } };
+    const [parked] = buildCards(rows, [stopped]);
+    expect(parked?.column).toBe("parked");
+    expect(followThrough([parked!], () => true)).toEqual([]);
+    const [resumed] = buildCards(rows, [{ ...stopped, agent: agent({ status: "running", activeTurnId: "recovery" }) }]);
+    expect(resumed?.column).toBe("working");
+    expect(buildCards(rows, [])[0]?.column).toBe("idle");
+  });
+
+  it("keeps both assignments, retained outcomes and each task's next owner", () => {
+    const rows = parseBacklog(`## In flight
+- [ ] inactive-peer-death-pose - Fix disconnects (agent: a1)
+- [ ] corpse-foot-support - Fix trailing feet (agent: a1)
+- [ ] oblique-shirt-layer - Finish the shirt (agent: a2)
+- [ ] pose-retirement - Retire after migration (waiting: five worktrees still use the poses)
+- [ ] user-play - Play through the map (hold: Eryn will play)
+## Done
+- [x] level-design-playbook - Retain unpublished evidence`);
+    const members = [
+      { agent: agent({ status: "running", labels: { [CREW_LABELS.task]: "corpse-foot-support" } }), report: null },
+      { agent: agent({ id: "a2", labels: {} }), report: null },
+      { agent: agent({ id: "a3", labels: { [CREW_LABELS.task]: "level-design-playbook" } }), report: null },
+    ];
+    const cards = buildCards(rows, members);
+    expect(cards).toHaveLength(rows.length);
+    expect(cards.map((card) => card.taskId).sort()).toEqual(rows.map((item) => item.id).sort());
+    expect(cards.find((card) => card.taskId === "level-design-playbook")).toMatchObject({ column: "done", agent: { id: "a3" } });
+    expect(cards.find((card) => card.taskId === "inactive-peer-death-pose")).toMatchObject({ column: "idle", agent: { id: "a1" } });
+    const cases = followThrough(cards, () => true);
+    expect(cases.map(({ taskId, reason }) => [taskId, reason]).sort()).toEqual([
+      ["inactive-peer-death-pose", "check-shared-assignment"], ["oblique-shirt-layer", "assign-next-step"],
+    ]);
+    expect(followThrough(buildCards(rows, members), () => true)).toEqual(cases);
+    expect(followThrough(cards, () => false).some((row) => row.taskId === "oblique-shirt-layer")).toBe(false);
+    const closed = members.map((member) => ({ ...member, agent: { ...member.agent, status: "closed" as const } }));
+    const retired = buildCards(rows, closed);
+    expect(retired.filter((card) => card.agent?.id === "a3")).toMatchObject([{ taskId: "level-design-playbook", column: "done" }]);
+    expect(followThrough(retired, () => false)).toContainEqual(expect.objectContaining({ taskId: "oblique-shirt-layer", reason: "verify-closed-worker" }));
+    expect(followThrough(retired, () => false)).toContainEqual(expect.objectContaining({ taskId: "inactive-peer-death-pose", reason: "verify-closed-worker" }));
+    expect(buildCards(rows, [{ ...closed[1]!, report: { state: "review", text: "Before the crash" } }]).find((c) => c.taskId === "oblique-shirt-layer")).toMatchObject({ column: "idle", report: null });
+    rows[0]!.waiting = "upstream migration";
+    rows[2]!.hold = "Eryn will play";
+    expect(followThrough(buildCards(rows, members), () => true)).toEqual([]);
+  });
+
   const backlog = parseBacklog(`## In flight
 - [ ] fix-login - Fix the login (project: web) (kind: ship)
 - [ ] by-id - Found by agent id (agent: a2)

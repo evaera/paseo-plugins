@@ -8,6 +8,7 @@
  * list snapshots in daemon-reads, independently of streaming agent updates.
  */
 import { createHash } from "node:crypto";
+import { actionBasis, projectLegacyDecision, projectTaskFile, readCardTurn, scopedActions } from "./task-card";
 import { realpath } from "node:fs/promises";
 
 import {
@@ -27,7 +28,7 @@ import { parseCrewReport, reportUrl } from "./crew-report";
 import { readCharterState } from "./charter-file";
 import { debriefInfo, debriefInstalled } from "./debrief";
 import { isHomeReady, readBacklog, readProjects, readSuggestions, readToolbar } from "./home";
-import type { AgentListOptions, PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
+import type { AgentListOptions, PaseoAgent, PaseoApi, TimelineItem, TimelinePage } from "./host-types";
 import { HOST_TIMEOUT_MS, withTimeout, type CrewHost, type HostClients } from "./hosts";
 import { timelineTails, type TimelineTails } from "./timeline-tails";
 
@@ -46,6 +47,7 @@ export function summarizeAgent(
     status: agent.status,
     cwd: agent.cwd,
     pendingPermissions: agent.pendingPermissions.length,
+    activeTurnId: agent.activeTurn?.turnId ?? null,
     requiresAttention: agent.requiresAttention === true,
     lastError: agent.lastError ?? null,
     updatedAt: agent.updatedAt,
@@ -134,9 +136,34 @@ export function closingText(items: readonly TimelineItem[]): string | null {
   return text.trim() === "" ? null : text;
 }
 
+/** Projected Codex tails can append unassigned shell receipts after the turn's closing message. */
+export function reportFromTimeline(entries: TimelinePage["entries"]): CrewReportSummary | null {
+  let end = entries.length;
+  let skippedReceipt = false;
+  while (end > 0) {
+    const entry = entries[end - 1]!;
+    const { item } = entry;
+    if (item.type === "tool_call" && item.name === "shell" && !entry.turnId &&
+        (item.status === "completed" || item.status === "failed")) {
+      skippedReceipt = true;
+    } else if (item.type !== "plugin" && item.type !== "notification") {
+      break;
+    }
+    end -= 1;
+  }
+  const last = entries[end - 1];
+  if (last?.item.type !== "assistant_message" || (skippedReceipt && !last.turnId)) return null;
+  let start = end - 1;
+  while (start > 0 && entries[start - 1]?.turnId === last.turnId) start -= 1;
+  const report = parseCrewReport(closingText(entries.slice(start, end).map((entry) => entry.item)));
+  if (report?.state === "review" || report?.state === "needs-decision") report.sequence = last.seqStart;
+  return report;
+}
+
 interface CachedReport {
   updatedAt: string;
   report: CrewReportSummary | null;
+  turnId: string | null;
 }
 
 /** Cached status lines; changed workers refresh in the background without holding up the board. */
@@ -151,18 +178,19 @@ export class ReportCache {
 
   private allowed(agent: PaseoAgent): boolean {
     return agent.id !== this.coordinatorId && agent.labels[CREW_LABELS.role] !== CREW_LABELS.coordinatorRole &&
-      (agent.archivedAt ?? null) === null && agent.status !== "running" && agent.status !== "initializing";
+      (agent.archivedAt ?? null) === null && agent.status !== "closed" && agent.status !== "running" && agent.status !== "initializing";
   }
 
   async reportFor(paseo: PaseoApi, agent: PaseoAgent): Promise<CrewReportSummary | null> {
     const cached = this.reports.get(agent.id);
-    const latest = this.latest.get(agent.id);
-    if (latest !== undefined && latest.updatedAt > agent.updatedAt) return cached?.report ?? null;
-    this.latest.set(agent.id, agent);
-    if (!this.allowed(agent)) return cached?.report ?? null;
-    if (cached !== undefined && cached.updatedAt >= agent.updatedAt) return cached.report;
     const previous = cached?.report;
     const fallback = previous?.state === "review" || previous?.state === "needs-decision" ? null : previous ?? null;
+    const latest = this.latest.get(agent.id);
+    if (latest !== undefined && latest.updatedAt > agent.updatedAt) return fallback;
+    this.latest.set(agent.id, agent);
+    if (agent.status === "closed") return null;
+    if (!this.allowed(agent)) return fallback;
+    if (cached !== undefined && cached.updatedAt >= agent.updatedAt) return cached.report;
     if (this.pending.has(agent.id) || Date.now() < (this.cooldown.get(agent.id)?.until ?? 0)) return fallback;
 
     this.pending.add(agent.id);
@@ -178,18 +206,24 @@ export class ReportCache {
       const duration = Date.now() - started;
       this.cooldown.set(agent.id, { until: Date.now() + (duration >= 1000 ? Math.min(60_000, duration * 2) : 0), retryMs: 5000 });
       if (!this.allowed(current)) return;
-      const report = parseCrewReport(closingText(page.entries.map((entry) => entry.item)));
-      if (report?.state === "review" || report?.state === "needs-decision") {
-        const entry = [...page.entries].reverse().find((candidate) => candidate.item.type === "assistant_message");
-        if (entry !== undefined) report.sequence = entry.seqStart;
-      }
-      this.reports.set(agent.id, { updatedAt: page.agent?.updatedAt ?? updatedAt, report });
+      const report = reportFromTimeline(page.entries);
+      const turnId = [...page.entries].reverse().find((entry) => entry.turnId && entry.item.type !== "plugin" && entry.item.type !== "notification")?.turnId ?? null;
+      this.reports.set(agent.id, { updatedAt: page.agent?.updatedAt ?? updatedAt, report, turnId });
     }).catch(() => {
       if (!this.latest.has(agent.id)) return;
       const retryMs = Math.min(60_000, Math.max(this.cooldown.get(agent.id)?.retryMs ?? 5000, (Date.now() - started) * 2));
       this.cooldown.set(agent.id, { until: Date.now() + retryMs, retryMs: Math.min(60_000, retryMs * 2) });
     }).finally(() => this.pending.delete(agent.id));
     return fallback;
+  }
+
+  lastTurn(id: string): string | null {
+    return this.reports.get(id)?.turnId ?? null;
+  }
+
+  isCurrent(agent: Pick<AgentSummary, "id" | "updatedAt">): boolean {
+    const cached = this.reports.get(agent.id);
+    return cached !== undefined && cached.updatedAt >= agent.updatedAt;
   }
 
   /** Drops agents no longer in the crew, so the map cannot grow for the life of the daemon. */
@@ -245,6 +279,7 @@ export function backlogColumn(item: BacklogItem): ColumnId {
   if (item.review !== undefined) return "review";
   if (item.kind === "user" || item.hold !== null) return "blocked";
   if (item.waiting !== null) return "waiting";
+  if (item.parked) return "parked";
   if (item.section === "in-flight") return "idle";
   return "queued";
 }
@@ -270,28 +305,41 @@ export function buildCards(backlog: readonly BacklogItem[], crew: readonly CrewM
   const byUpdate = [...crew].sort((a, b) => b.agent.updatedAt.localeCompare(a.agent.updatedAt));
   for (const member of byUpdate) {
     const taskId = member.agent.labels[CREW_LABELS.task] ?? null;
-    const index = backlog.findIndex(
-      (item, position) =>
-        !claimed.has(position) &&
-        item.section !== "done" &&
-        ((taskId !== null && item.id === taskId) || item.agentId === member.agent.id),
-    );
+    const stopped = member.agent.status === "idle" || member.agent.status === "closed";
+    const matches = (item: BacklogItem, position: number) =>
+      !claimed.has(position) && (item.agentId === member.agent.id || (item.agentId === null && item.id === taskId));
+    const active = (item: BacklogItem, position: number) => item.section !== "done" && matches(item, position);
+    const available = (item: BacklogItem, position: number) => active(item, position) && item.section === "in-flight" &&
+      !item.parked && !item.waiting && !item.hold && !item.review && !item.blockedBy && item.kind !== "user";
+    let index = backlog.findIndex((item, position) => available(item, position) && item.id === taskId);
+    if (index < 0) index = backlog.findIndex((item, position) => available(item, position) && item.agentId === member.agent.id);
+    if (index < 0) index = backlog.findIndex((item, position) => active(item, position) && item.id === taskId);
+    if (index < 0) index = backlog.findIndex(active);
+    if (index < 0 && stopped && !member.agent.pendingPermissions) {
+      index = backlog.findIndex((item, position) => item.section === "done" && matches(item, position) && (item.id === taskId || !taskId));
+    }
     const item = index === -1 ? null : (backlog[index] ?? null);
+    const superseded = !item && taskId !== null && backlog.some((row) => row.id === taskId);
+    if (superseded && stopped && !member.agent.pendingPermissions) continue;
     if (index !== -1) claimed.add(index);
+    const parked = stopped && item?.parked && !item.review && !item.hold && !item.waiting && item.kind !== "user" && !member.agent.pendingPermissions;
+    const anotherAssignment = taskId && item && item.id !== taskId && backlog.some((row) => row.id === taskId && row.section !== "done");
+    const report = member.agent.status === "closed" || anotherAssignment ? null : member.report;
     cards.push({
       key: `agent:${member.agent.id}`,
-      column: crewColumn(member.agent, member.report, item?.hold != null, item?.waiting != null, item?.review !== undefined),
-      taskId: taskId ?? item?.id ?? null,
+      column: item?.section === "done" ? "done" : parked ? "parked" : crewColumn(member.agent, report, item?.hold != null || item?.kind === "user", item?.waiting != null, item?.review !== undefined),
+      taskId: item?.id ?? (superseded ? null : taskId),
       title: item?.title ?? member.agent.title ?? taskId ?? "Untitled crewmate",
-      project: member.agent.labels[CREW_LABELS.project] ?? item?.project ?? null,
-      kind: member.agent.labels[CREW_LABELS.kind] ?? item?.kind ?? null,
+      project: item?.project ?? member.agent.labels[CREW_LABELS.project] ?? null,
+      kind: item?.kind ?? member.agent.labels[CREW_LABELS.kind] ?? null,
       backlog: item,
       agent: member.agent,
-      report: member.report,
-      links: cardLinks(member.report === null ? null : reportUrl(member.report.text), item?.links ?? []),
+      report,
+      links: cardLinks(report === null ? null : reportUrl(report.text), item?.links ?? []),
     });
   }
 
+  const owners = new Map(crew.map(({ agent }) => [agent.id, agent]));
   backlog.forEach((item, index) => {
     if (claimed.has(index)) return;
     cards.push({
@@ -302,12 +350,68 @@ export function buildCards(backlog: readonly BacklogItem[], crew: readonly CrewM
       project: item.project,
       kind: item.kind,
       backlog: item,
-      agent: null,
+      agent: item.section !== "done" && item.agentId ? owners.get(item.agentId) ?? null : null,
       report: null,
       links: item.links,
     });
   });
-  return cards;
+  return cards.map((card) => {
+    if (card.column !== "review" && card.column !== "blocked") return card;
+    const state = card.column === "review" ? "review" : "needs-decision";
+    const packet = card.report?.state === state ? card.report.packet : undefined;
+    const heading = packet?.specimens?.trimStart().match(/^#{1,6}[ \t]+([^\r\n]{1,160})(?:\r?\n|$)/)?.[1];
+    const assignmentTitle = card.backlog && card.agent?.labels[CREW_LABELS.task] !== card.taskId ? card.title : card.agent?.title || card.title;
+    const decision = state === "review" ? card.backlog?.review : card.backlog?.hold;
+    const manualChoices = card.backlog?.actions.length || card.backlog?.specimens;
+    if (!decision || card.agent?.pendingPermissions || (packet && !manualChoices)) {
+      return { ...card, title: packet?.title || heading || assignmentTitle };
+    }
+    return { ...card, title: assignmentTitle, report: { state, text: decision, packet: { specimens: card.backlog?.specimens } } };
+  });
+}
+
+/** Only unresolved assignments belong on the coordinator's existing finish/wake check. */
+export function followThrough(cards: FleetCard[], current: (agent: AgentSummary) => boolean) {
+  return cards.flatMap((card) => {
+    const item = card.backlog;
+    if ((!card.coordinatorReason && card.column !== "idle") || item?.blockedBy || (item && item.section !== "in-flight" && !card.coordinatorReason)) return [];
+    const worker = card.agent;
+    const secondary = worker !== null && card.key !== `agent:${worker.id}`;
+    if (!card.coordinatorReason && worker && worker.status !== "closed" && !secondary && !current(worker)) return [];
+    const reason = card.coordinatorReason ?? (worker?.status === "closed" ? "verify-closed-worker" : secondary ? "check-shared-assignment" : !worker ? "locate-owner" :
+      card.report?.state === "done" || card.report?.state === "resolved" ? "reconcile-result" : "assign-next-step");
+    const agentId = worker?.id ?? item?.agentId ?? null;
+    // Recording a disposition must preserve the revision it acknowledges.
+    const { active: _active, consumed: _consumed, ...assignment } = item ?? {};
+    const revision = createHash("sha256").update(JSON.stringify([
+      item ? assignment : null, card.taskId, agentId, card.cardBasis ?? (secondary ? worker?.status : worker?.updatedAt), card.report, reason,
+      ...(secondary && worker?.activeTurnId ? [worker.activeTurnId] : []),
+      ...(reason === "review-checkpoint" && worker && worker.status !== "running" ? [worker.status] : []),
+    ])).digest("hex");
+    const detail = reason === "verify-closed-worker" ? "Check the recorded worker for recovery and the latest owner decision before dispatching." : card.report?.text ?? null;
+    return [{ key: card.key, taskId: card.taskId, title: card.title, agentId, reason, revision, detail }];
+  });
+}
+
+/** A coordinator receipt only resolves the specific assignment and evidence it names. */
+export function applyDispositions(cards: FleetCard[], cases: ReturnType<typeof followThrough>) {
+  const outstanding = new Map(cases.map((entry) => [entry.key, entry]));
+  const projected = cards.map((card) => {
+    const entry = outstanding.get(card.key);
+    if (!entry) return card;
+    const kind = entry.reason === "review-checkpoint" ? "consumed" :
+      entry.reason === "check-shared-assignment" && card.agent?.status === "running" && card.agent.activeTurnId ? "active" : null;
+    if (!kind) return card;
+    const receipt = card.backlog?.[kind];
+    if (!receipt?.startsWith(entry.revision + " ")) return card;
+    const next = receipt.slice(entry.revision.length).trim();
+    if (!next) return card;
+    outstanding.delete(card.key);
+    const disposition = { kind, next, revision: entry.revision } as const;
+    return kind === "active" ? { ...card, disposition, column: "working" as const, report: { state: "working" as const, text: next } } :
+      { ...card, disposition, coordinatorReason: undefined };
+  });
+  return { cards: projected, followThrough: [...outstanding.values()] };
 }
 
 /** Whether two paths name one directory, through symlinks; a path that does not resolve is compared as written. */
@@ -495,29 +599,40 @@ export async function loadFleet(
         if (info !== null) debrief.set(agent.id, info);
       }),
   );
-  const cards = buildCards(backlog, crew).map((card) => {
+  const workers = new Map(crewAgents.map(({ agent }) => [agent.id, agent]));
+  const projected = await Promise.all(buildCards(backlog, crew).map(async (card) => {
+    const worker = card.agent && workers.get(card.agent.id);
+    if (!card.backlog?.cardEpoch || !worker || card.backlog.section !== "in-flight") return projectLegacyDecision(card);
+    const turn = card.agent?.serverId ? worker.activeTurn?.turnId ?? reports.lastTurn(worker.id) : await readCardTurn(home, worker.id);
+    const basis = actionBasis(card, worker, turn);
+    return projectTaskFile(home, card, basis, reports.isCurrent(worker));
+  }));
+  const cards = projected.map((card) => {
     const info = card.agent === null ? undefined : debrief.get(card.agent.id);
     const actionRevision = card.column === "review" || card.column === "blocked"
       ? createHash("sha256").update(JSON.stringify([
           card.taskId ?? card.key, card.agent?.id, card.agent?.serverId, card.column,
           card.report, card.backlog?.hold, card.backlog?.review, card.backlog?.actions,
           card.agent?.pendingPermissions, card.links, card.backlog?.reportPath,
+          ...(card.cardBasis ? [card.cardBasis] : []),
         ])).digest("hex")
       : undefined;
     return {
-      ...card,
+      ...scopedActions(card),
       ...(info === undefined ? {} : { debrief: info }),
       ...(actionRevision === undefined ? {} : { actionRevision }),
     };
   });
 
+  const incomplete = warnings.some((warning) => warning.startsWith("The backlog") || warning.startsWith("Paseo could not list the crew"));
   return {
     home,
     homeReady,
     coordinator: coordinator.agent === null ? null : summarizeAgent(coordinator.agent),
     coordinatorMissing: coordinator.missing,
     coordinatorInHome: coordinator.agent === null ? true : await sameDirectory(coordinator.agent.cwd, home),
-    cards,
+    ...applyDispositions(cards, followThrough(incomplete ? cards.filter((card) => card.backlog && card.agent) : cards, (agent) => reports.isCurrent(agent))),
+    reconciliationPending: incomplete || cards.some((card) => card.agent?.status === "idle" && !card.coordinatorReason && card.key === `agent:${card.agent.id}` && card.column === "idle" && !reports.isCurrent(card.agent)),
     projects,
     suggestions,
     ...(toolbar === undefined ? {} : { toolbar }),

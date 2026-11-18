@@ -31,7 +31,8 @@ const SECTION_HEADINGS: ReadonlyArray<[RegExp, BacklogSection]> = [
 ];
 
 const ITEM_LINE = /^\s*[-*]\s+\[([ xX~-])\]\s+(.+)$/;
-const GROUP = /\(([a-zA-Z][\w-]*)\s*:\s*([^()]*)\)/g;
+// A review or hold may include inline Markdown images and links with parenthesized destinations.
+const GROUP = /\(([a-zA-Z][\w-]*)\s*:\s*((?:[^()]|\([^()]*\))*)\)/g;
 const OUTCOME = /\((merged|done|landed|closed|failed|abandoned)\s+([^()]*)\)/i;
 /** `(since 2026-09-20)`, which the charter spells without a colon. */
 const SINCE = /\(since\s+([^():]*)\)/i;
@@ -176,10 +177,19 @@ function parseItem(section: BacklogSection, line: string): BacklogItem | null {
   const outcome = OUTCOME.exec(body);
 
   const review = field(groups, "review");
+  const specimens = field(groups, "specimens");
   const priority = Number(field(groups, "priority"));
+  const active = field(groups, "active");
+  const consumed = field(groups, "consumed");
+  const parked = field(groups, "parked");
 
   return {
     ...(review === null ? {} : { review }),
+    ...(active ? { active } : {}),
+    ...(consumed ? { consumed } : {}),
+    ...(parked ? { parked } : {}),
+    ...(field(groups, "card") ? { cardEpoch: field(groups, "card")! } : {}),
+    ...(specimens && specimens.length <= 20_000 ? { specimens } : {}),
     ...(Number.isSafeInteger(priority) && priority !== 0 ? { priority } : {}),
     section,
     id,

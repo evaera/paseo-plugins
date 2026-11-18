@@ -54,6 +54,7 @@ export interface WatchService {
 export function startWatches(
   server: PluginLifecycleRegistration,
   readConfig: () => Promise<MissionControlConfig>,
+  onTick: () => void = () => {},
 ): WatchService {
   let paseo: PaseoApi | null = null;
   const remember = (handle: PaseoApi) => {
@@ -61,6 +62,7 @@ export function startWatches(
   };
 
   const runner = new WatchRunner({
+    onTick,
     async home() {
       const home = resolveHome(await readConfig());
       return (await isHomeReady(home)) ? home : null;

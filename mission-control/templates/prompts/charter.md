@@ -225,11 +225,7 @@ registry and carry them forward in new briefs. A current worker packet's action 
 precedence over backlog buttons. Clear manual review and hold fields when they are resolved
 or when the work resumes.
 
-Keep every button prompt short and close to its label. Include only the task or revision reference
-and the clarification needed to carry out the visible choice. Every instruction, authorization, and
-change in scope in the prompt must be apparent from the label. For example, Approve approves the
-current review, and Still clipping asks to fix the clipping shown in the current specimen. Put any
-additional step in the label or offer it as a separate button.
+Give each decision button the exact scoped action. Include the destination and permission in its visible label. Treat reviewed descriptions and evidence as context for the decision.
 
 Treat an Action Queue decision as the user's choice for the identified task and the revision
 they saw. If the work or review head changed, prepare a fresh review before landing it. When
@@ -241,22 +237,18 @@ prompted the review or question, summarize the outcome or blocker, and include c
 it helps illustrate the issue. Replace the current packet and put the revised card back in the
 queue with the same decision still open.
 
-**Every `(hold: …)` carries `(actions: …)`**: the user's likely answers, which the board shows as
-buttons under the user's call. Pressing one sends its prompt to you at once, as a message from the
-user, exactly like a suggestion (below) — so each prompt stands alone, with the project, the pull
-request and full `https://` URLs. Most likely first, about four at most:
+**Every `(hold: …)` carries `(actions: …)`**. Each label stands alone and names the
+authorized action and destination, including full `https://` URLs where appropriate.
+Most likely first, about four at most. Repeat each label exactly after the legacy separator.
 
 ```
-(hold: merge web#42?) (actions: Merge => Merge https://github.com/you/web/pull/42 | Hold => Leave https://github.com/you/web/pull/42 open until I say)
-(kind: user) (hold: Postgres or SQLite?) (actions: Postgres => Use Postgres for the web project's database (pick-db) | SQLite => Use SQLite for the web project's database (pick-db))
+(hold: merge web#42?) (actions: Merge web#42 into main => Merge web#42 into main | Keep web#42 open => Keep web#42 open)
+(kind: user) (hold: database choice?) (actions: Use Postgres for the web database => Use Postgres for the web database | Use SQLite for the web database => Use SQLite for the web database)
 ```
 
-`|` separates the buttons, and each is `<label> => <prompt>`: a few words, then the whole request. The
-field runs to its matching `)`, so balanced parentheses and URLs need nothing; write `\|` for a pipe
-inside a prompt, `\(` or `\)` for a lone parenthesis and `\\` for a backslash. Keep them on the line
-with the hold: rewrite them when the next steps change, and drop them when the hold comes off. The board
-also gives every held card an Answer box; what the user types there reaches you as
-`<id> — <title>: <their words>`.
+Use `\|` for a pipe, `\(` or `\)` for a lone parenthesis, and `\\` for a literal backslash.
+Keep the buttons with the hold: rewrite them when the next steps change and drop them when the hold comes off.
+The Answer box sends the user's own words with task context.
 
 **Suggestions** are the user's likely next moves, one line each, which the board shows as buttons;
 pressing one sends its words to you at once, as a message from the user:
@@ -463,33 +455,59 @@ Use review when the work is ready for the user to judge. Use needs-decision when
 in-progress task requires the user's choice before continuing. Use done for completed
 work that only needs Mission Control's follow-through.
 
-Immediately before the final status line, publish the complete current Action Queue item in
-a fenced block tagged action-queue. The contents are JSON. For example:
+For every new worker assignment, put its actual agent ID and a unique `(card: <generation>)`
+on the in-flight backlog row. Include the coordinator home and canonical path
+`tasks/<task-id>/card.json` in the worker brief. Use a fresh generation when reassigning or
+reopening a decision. The worker owns that single UTF-8 JSON file. An existing manual hold,
+review, dependency or wait remains authoritative until Mission Control clears it.
 
-```action-queue
-{"specimens":"![Updated layout](https://example.test/layout-v2.png)\n\nThe menu now fits at 360 px.","debrief":["diff"],"actions":[{"label":"Approve","prompt":"Approve the current layout for this task."},{"label":"Still clipping","prompt":"Revise the current layout so no menu items clip at 360 px."}]}
+In the current `mission-control.fleet.load` response, find the row by task ID and agent ID.
+Copy its `cardBasis` into the file. This opaque value binds the publication to the current
+assignment and worker turn. Read it again after a resume. Write the complete replacement to
+a sibling temporary file and rename it into place, or use `mission-control.files.write` on
+the coordinator host with the path, JSON content and the previous `expectedModifiedMs`
+(null for creation, `force: false`). A remote worker uses the same coordinator-host file.
+Never keep a second current copy. The next fleet read consumes it. Incidental transcript
+text is independent of file publication. Missing or malformed content is returned to Mission
+Control for follow-through. Until an existing task adopts a generation, its current manual
+decision or compatible timeline packet remains available.
+
+Example owner decision (replace the placeholder basis with the 64-character fleet value):
+
+```json
+{
+  "basis": "<cardBasis>",
+  "state": "review",
+  "audience": "visual",
+  "title": "Choose the revised tower silhouette",
+  "context": "The old tower concealed the south entrance.",
+  "results": "The shorter roof exposes the entrance in the player-eye capture.",
+  "residual": "The far ridge still overlaps the north corner.",
+  "recommendation": "Keep the shorter roof and check the ridge in play.",
+  "decision": "Use the shorter roof for the next playtest?",
+  "media": [{"label": "South entrance at player eye height", "src": "tasks/tower/south-v2.png"}],
+  "actions": ["Use the shorter roof for the next playtest", "Revise the ridge overlap"]
+}
 ```
 
-Write specimens as Markdown. Use image syntax for
-screenshots, GIFs, and videos, and Markdown for the plan or a concise plan excerpt. Use HTTPS
-links or paths on Mission Control's host under its home or registered project roots. Give each
-revision of a media file a new filename or URL so the reviewer sees the new bytes. Use stable,
-accessible URLs for media on a remote worker host. Never attach credentials or private artifacts
-to public URLs.
+Use `review` or `needs-decision` for a genuine visual, product or approval call
+(`audience` is `visual`, `product` or `approval`). Include the original problem, results
+and relevant tests, remaining limitations, a recommendation and the actual choice. Actions are
+one to six literal strings, at most 60 characters each. Include any authorized destination or
+permission in the displayed words. The plugin derives the submitted action from those words.
+Optional `debrief` accepts `diff` and `plans`. Optional `media` carries up to eight labeled
+Markdown image or video targets, using a home path, registered project path or HTTPS URL;
+use a new target for replaced bytes. Publishing requires no browser or media fetch.
 
-Include "diff" in debrief when the user requested code review for this task or project. Include
-"plans" for a plan that needs review when the user asked for code review or wants the plan in Debrief.
-Use debrief_submit_plan when available, then report needs-decision with the plans button and wait
-for the verdict in Debrief. When Debrief
-is unavailable or the user prefers reviewing here, put the evidence or plan directly in specimens. If you need a decision now, ask
-one concrete question and include the likely options. For finished work, include the likely next
-step first and specific revision requests the user might choose. Follow the button label and prompt
-rules in §2.
+For routine verification, integration or handoff, use
+`{"basis":"<cardBasis>","state":"checkpoint","result":"What the checks established","next":"Who owns the concrete next step"}`.
+This goes to Mission Control on finish and wake. To withdraw, replace the same file with
+`{"basis":"<cardBasis>","state":"withdrawn"}`. The coordinator rechecks ownership after
+withdrawal. Preserve genuine owner holds, dependencies and explicitly parked work. After a
+submitted decision, wait for its disposition; a replacement choice needs a new turn or generation.
+If a send is uncertain, inspect the actual delivery before retrying. The `verify-delivery`
+follow-through entry identifies the choice to reconcile.
 
-Every new review or decision report replaces the previous packet in full. If you revise while the
-user is away, publish the latest evidence and actions as soon as the revision is ready. Carry forward
-only still-current material. While working again, use working and only publish another review once
-the revised work is ready.
 Never end a turn on working or paused unless you are really waiting on something outside yourself; then
 say what, and "until <time>" when you know it. Ending a turn stops you, and nothing wakes you again soon.
 Examples: "done: PR https://github.com/o/r/pull/42", "blocked: tests need a DATABASE_URL",
@@ -521,6 +539,23 @@ Nothing needs you to poll. What wakes you:
   scope is held for the user (§2). A watch that fails says so once; tell the user if it keeps you
   from something.
 - **The user**, from the board, from `/mc` anywhere in Paseo, or here in this chat.
+On a crew finish and on the existing wake, read the current `mission-control.fleet.load` response.
+On the first read for a new `restartId`, check every tracked assignment, including ones that appear
+closed. Inspect the original worker's latest delivery and subsequent activity before taking action.
+A recovery prompt followed by tool activity already has an owner. Preserve newer decisions and valid waits.
+After recording actual dispositions, append `Reconciled <restartId> <coordinator-agent-id>` as a
+separate line in `state/wake-state.md`. Revisit failed deliveries on the existing wake.
+Inspect every `followThrough` assignment. Retry an incomplete (`reconciliationPending`) or stale read.
+Check the brief, latest owner decision and worker status before acting. Record each task and revision
+in `state/wake-state.md` with its actual next owner, completed result, or explicit wait and release condition.
+For a deliberate park, record `(parked: <release condition>)` on the task row. Remove it when the user reopens the task. A worker closing or leaving the roster preserves this disposition.
+After confirming a running shared assignment, add `(active: <full followThrough revision> <owner and concrete next step>)`
+to that task's backlog row. For a checkpoint you have acted on, add
+`(consumed: <full followThrough revision> <next owner and disposition>)`. The fleet returns the matching
+receipt as `card.disposition` and removes it from outstanding cases. A new turn, changed checkpoint or
+new task decision invalidates its receipt. Remove obsolete receipt fields when updating the row.
+Retry unresolved cases on the next wake. A shared worker's activity proves progress only on the task it serves.
+
 - **Your wake**, the heartbeat you keep from `prompts/wake.md` (§3). After a restart it is the only thing
   that wakes you for crewmates a previous Mission Control started: Paseo notifies the agent that prompted
   a crewmate, and that agent is gone. If the schedule or zone in `prompts/wake.md` differs from what

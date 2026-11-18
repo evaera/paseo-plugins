@@ -141,7 +141,7 @@ describe("prepareHome and the charter", () => {
     expect(fingerprint(await read(home, CHARTER_FILE))).toBe(fingerprint(await readTemplate(TEMPLATES.charter)));
     // Pinned so a charter change is deliberate: every untouched home follows it, and every edited one is
     // offered it as charter.new.md. e0b749cb695c5df6 was the charter as it moved into templates/.
-    expect(fingerprint(await readTemplate(TEMPLATES.charter))).toBe("2db05e98055ac471");
+    expect(fingerprint(await readTemplate(TEMPLATES.charter))).toBe("f5f327e0ec7f5375");
 
     await editCopy(home, "# My Mission Control\n\n<!-- a note to myself -->\nYour home is {{home}}; keep it tidy.");
     await prepareHome(home, MissionControlConfigSchema.parse({}));

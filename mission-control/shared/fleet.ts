@@ -56,6 +56,7 @@ export const AgentSummarySchema = z.object({
   status: AgentStatusSchema,
   cwd: z.string(),
   pendingPermissions: z.number().int(),
+  activeTurnId: z.string().nullable().optional(),
   requiresAttention: z.boolean(),
   lastError: z.string().nullable(),
   updatedAt: z.string(),
@@ -70,6 +71,7 @@ export const AgentSummarySchema = z.object({
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 
 export const ReviewPacketSchema = z.object({
+  title: z.string().trim().min(1).max(160).optional().catch(undefined),
   specimens: z.string().max(20_000).optional(),
   debrief: z.array(z.enum(["diff", "plans"])).max(2).optional(),
   actions: z.array(z.object({
@@ -112,6 +114,11 @@ export const BacklogItemSchema = z.object({
   host: z.string().nullable(),
   hold: z.string().nullable(),
   review: z.string().optional(),
+  specimens: ReviewPacketSchema.shape.specimens,
+  cardEpoch: z.string().optional(),
+  active: z.string().optional(),
+  consumed: z.string().optional(),
+  parked: z.string().optional(),
   priority: z.number().int().optional(),
   /** `(waiting: a code review)`: nothing left to do here, the next move is someone else's; a leading "on" is dropped. */
   waiting: z.string().nullable(),
@@ -164,6 +171,9 @@ export const FleetCardSchema = z.object({
   links: z.array(z.string()),
   debrief: DebriefInfoSchema.optional(),
   actionRevision: z.string().optional(),
+  cardBasis: z.string().optional(),
+  coordinatorReason: z.string().optional(),
+  disposition: z.object({ kind: z.enum(["active", "consumed"]), revision: z.string(), next: z.string() }).optional(),
 });
 export type FleetCard = z.infer<typeof FleetCardSchema>;
 
@@ -260,6 +270,12 @@ export const FleetSchema = z.object({
    */
   coordinatorInHome: z.boolean(),
   cards: z.array(FleetCardSchema),
+  followThrough: z.array(z.object({
+    taskId: z.string().nullable(), title: z.string(), agentId: z.string().nullable(),
+    reason: z.string(), revision: z.string(), detail: z.string().nullable().optional(),
+  })).optional(),
+  reconciliationPending: z.boolean().optional(),
+  restartId: z.string().optional(),
   projects: z.array(ProjectSchema),
   /** What the user might do next, most likely first; empty hides the card and the tab. */
   suggestions: z.array(SuggestionSchema),
@@ -283,7 +299,7 @@ export const FleetSchema = z.object({
 export type Fleet = z.infer<typeof FleetSchema>;
 
 export function staleFleet(fleet: Fleet, error: unknown): Fleet {
-  return { ...fleet, stale: true, staleReason: error instanceof Error ? error.message : String(error) };
+  return { ...fleet, followThrough: [], reconciliationPending: true, stale: true, staleReason: error instanceof Error ? error.message : String(error) };
 }
 
 // ---------------------------------------------------------------------------

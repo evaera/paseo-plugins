@@ -92,6 +92,7 @@ interface RunnerState {
 export type DeliveryOutcome = "sent" | "wait";
 
 export interface WatchRunnerOptions {
+  onTick?: () => void;
   /** Mission Control's home, or null while no launch has prepared one. */
   home: () => Promise<string | null>;
   /** Names the user has switched off. */
@@ -247,6 +248,7 @@ export class WatchRunner {
 
   /** Runs every watch due in the minute `at` falls in, then tries to deliver what is queued. */
   async tick(at: Date = this.now()): Promise<void> {
+    this.options.onTick?.();
     const home = await this.options.home();
     if (home === null) return;
     await seedWatches(home).catch((error: unknown) => {

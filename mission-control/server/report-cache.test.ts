@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CREW_LABELS } from "../shared/fleet";
-import { ReportCache } from "./fleet";
+import { ReportCache, reportFromTimeline } from "./fleet";
 import type { PaseoAgent, PaseoApi, TimelinePage } from "./host-types";
 import { TimelineTails } from "./timeline-tails";
 import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
@@ -15,6 +15,24 @@ async function flush() { for (let index = 0; index < 12; index += 1) await Promi
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("status report tails", () => {
+  it("keeps the quiet-lock review across its two post-turn shell receipts", () => {
+    // Reduced from the projected tail at sequences 708-902.
+    const packet = {
+      specimens: "A drill, import, or native build could clear its last lock check, pause, then start Godot or Cargo inside the timing window.",
+      actions: [{ label: "Approve rollout", prompt: "Approve the patch and coordinate updating the active timing wrappers and competing launchers together." }],
+    };
+    const report = { seqStart: 708, turnId: "quiet-lock", item: { type: "assistant_message",
+      text: "```action-queue\n" + JSON.stringify(packet) + "\n```\n\nreview: Decide whether to roll out the benchmark launch guard" } };
+    const receipt = { seqStart: 899, item: { type: "tool_call", name: "shell", status: "completed" } };
+    const entries = [report, receipt, { ...receipt, seqStart: 901 }];
+    const extract = (rows: unknown[]) => reportFromTimeline(rows as TimelinePage["entries"]);
+    expect(extract(entries)).toEqual({ state: "review", text: "Decide whether to roll out the benchmark launch guard", packet, sequence: 708 });
+    expect(extract([report, { ...receipt, item: { ...receipt.item, status: "failed" } }])?.packet).toEqual(packet);
+    expect(extract([...entries, { ...receipt, turnId: "rollout" }])).toBeNull();
+    expect(extract([...entries, { item: { type: "user_message", text: "Approve rollout" } }])).toBeNull();
+    expect(extract([...entries, { turnId: "rollout", item: { type: "assistant_message", text: "Updating the wrappers." } }])).toBeNull();
+  });
+
   it("does not block, coalesces each agent, and reuses successful tails until updatedAt changes", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     let finish!: (value: TimelinePage) => void;
@@ -31,6 +49,15 @@ describe("status report tails", () => {
     finish(page()); await flush();
     await cache.reportFor(api, agent("a", "one"));
     expect(refetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a cached decision as soon as the worker resumes", async () => {
+    const api = apiFor(async () => ({ entries: [{ item: { type: "assistant_message", text: "review: Land Crossfire?" } }] }) as unknown as TimelinePage);
+    const cache = new ReportCache(new TimelineTails());
+    await cache.reportFor(api, agent("crossfire"));
+    await flush();
+    expect(await cache.reportFor(api, agent("crossfire"))).toMatchObject({ state: "review" });
+    expect(await cache.reportFor(api, { ...agent("crossfire", "two"), status: "running" })).toBeNull();
   });
 
   it("uses the returned timeline's agent stamp when it is newer than the directory snapshot", async () => {

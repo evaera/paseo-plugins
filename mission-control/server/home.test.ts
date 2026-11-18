@@ -104,18 +104,14 @@ describe("renderCharter", () => {
     // The escapes it teaches are the parser's.
     expect(text).toContain("`\\|` for a pipe");
     expect(text).toContain("`\\(` or `\\)` for a lone parenthesis");
-    // What the Answer box sends (`answerText` in client/card-answer.ts), as the charter quotes it.
-    expect(text).toContain("`<id> — <title>: <their words>`");
-
     const examples = /```\n([\s\S]*?)```/.exec(text)?.[1]?.trim().split("\n") ?? [];
     expect(examples).toHaveLength(2);
     const items = parseBacklog(`## Queued\n${examples.map((line, index) => `- [ ] t${index} - Title ${line}`).join("\n")}`);
     expect(items.map((item) => item.actions.map((action) => action.label))).toEqual([
-      ["Merge", "Hold"],
-      ["Postgres", "SQLite"],
+      ["Merge web#42 into main", "Keep web#42 open"],
+      ["Use Postgres for the web database", "Use SQLite for the web database"],
     ]);
-    expect(items[0]?.actions[0]?.prompt).toBe("Merge https://github.com/you/web/pull/42");
-    expect(items[1]?.actions[0]?.prompt).toBe("Use Postgres for the web project's database (pick-db)");
+    expect(items.flatMap((item) => item.actions).every((action) => action.prompt === action.label)).toBe(true);
     expect(items.map((item) => [item.title, item.url])).toEqual([
       ["Title", null],
       ["Title", null],

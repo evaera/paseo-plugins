@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseBacklog, takeActions } from "./backlog";
+import { buildCards } from "./fleet";
 import { TEMPLATES, readTemplate } from "./templates";
 
 const SAMPLE = `# Backlog
@@ -20,6 +21,17 @@ Some prose Mission Control wrote, which is not an item.
 `;
 
 describe("parseBacklog", () => {
+  it("carries a manual Crossfire review and its selected images into the fleet without a worker report", () => {
+    const specimens = "Revision 6d14896ce. ![South start](C:/shots/south.png) ![Midfield](C:/shots/midfield.png)";
+    const line = `- [ ] scifi-battle-map - Crossfire (review: Land the reviewed map) (specimens: ${specimens}) (actions: Land it => Land the reviewed map locally)`;
+    const [card] = buildCards(parseBacklog(`## In flight\n${line}`), []);
+    expect(card).toMatchObject({
+      taskId: "scifi-battle-map", title: "Crossfire", column: "review", agent: null,
+      backlog: { title: "Crossfire", actions: [{ label: "Land it", prompt: "Land the reviewed map locally" }] },
+      report: { state: "review", text: "Land the reviewed map", packet: { specimens } },
+    });
+  });
+
   it("reads every item under the three headings, in file order", () => {
     expect(parseBacklog(SAMPLE).map((item) => `${item.section}:${item.id}`)).toEqual([
       "in-flight:fix-flaky-login",

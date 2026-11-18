@@ -1,6 +1,9 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
 import { readMissionControlConfig, resolveHome, updateMissionControlConfig } from "./server/config";
+import { deliverCardChoice, recordCardTurn } from "./server/task-card";
+import { recoveryId, RestartRecovery } from "./server/restart-recovery";
+import { randomUUID } from "node:crypto";
 import { nameHomeOnce } from "./server/home-name";
 import {
   UserSteers,
@@ -90,7 +93,8 @@ export default function contribute(server: PluginServerContext) {
   const hosts = new HostClients();
   const locations: CrewLocations = new Map();
   // The scripts in the home's watches/ folder, run on their schedules; see server/watches.ts.
-  const watches = startWatches(server, readMissionControlConfig);
+  const recovery = new RestartRecovery();
+  const watches = startWatches(server, readMissionControlConfig, () => recovery.request());
 
   metrics.handle(readConfig, async () => {
     const config = await readMissionControlConfig();
@@ -121,6 +125,7 @@ export default function contribute(server: PluginServerContext) {
       () => watches.runner.summaries(),
       locations,
     )).then((fleet) => {
+      if (fleet.homeReady && fleet.coordinator) fleet = { ...fleet, restartId: recoveryId };
       // A late success still seeds the cache, but must not overwrite a newer successful assembly.
       if (generation >= lastGoodGeneration) {
         lastGoodFleet = fleet;
@@ -130,6 +135,7 @@ export default function contribute(server: PluginServerContext) {
     }), 20_000, "The board").then((fleet) => {
       // A Mission Control agent launched before the plugin named its home gets its name the first time the board looks.
       const workspaceId = fleet.coordinator?.workspaceId ?? null;
+      void recovery.inspect(fleet, paseo).catch((error) => console.warn("[mission-control] restart reconciliation:", error));
       if (workspaceId !== null && fleet.coordinatorInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
       return fleet;
     }).catch((error: unknown) => {
@@ -149,7 +155,11 @@ export default function contribute(server: PluginServerContext) {
   metrics.handle(restartCoordinatorRpc, (_input, { paseo }) => restartCoordinator(paseo));
   metrics.handle(compactCoordinatorRpc, async (_input, { paseo }) => ({ agentId: await compactCoordinator(paseo) }));
   metrics.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
-  metrics.handle(askCoordinatorRpc, async (message, { paseo }) => ({ agentId: await askCoordinator(paseo, message) }));
+  const decisionFleet = async (paseo: PaseoApi) => loadFleet(paseo, hosts, await readMissionControlConfig(), reports, undefined, locations);
+  metrics.handle(askCoordinatorRpc, async (message, { paseo }) => ({
+    agentId: await deliverCardChoice(message.text, () => decisionFleet(paseo),
+      (text) => askCoordinator(paseo, { ...message, text })),
+  }));
   metrics.handle(chatImagesRpc, async ({ messageId }) => ({ sources: await chatImageSources(await home(), messageId) }));
   metrics.handle(askCoordinatorCommandRpc, async ({ command, args }, { paseo }) => ({
     agentId: await askCoordinator(paseo, { text: await commandText(command, args) }),
@@ -169,10 +179,11 @@ export default function contribute(server: PluginServerContext) {
     return { api: await hosts.api(paseo, serverId), serverId, named, coordinatorAgentId: config.coordinatorAgentId.trim() };
   }
   metrics.handle(steerCrewRpc, async ({ agentId, serverId, text }, { paseo }) => {
-    await steerCrew(await crewTarget(paseo, serverId), steers, agentId, text, async (agent, said, answer) => {
+    const target = await crewTarget(paseo, serverId);
+    await deliverCardChoice(text, () => decisionFleet(paseo), (choice) => steerCrew(target, steers, agentId, choice, async (agent, said, answer) => {
       const coordinator = await resolveCoordinator(paseo, await readMissionControlConfig());
       if (coordinator.agent !== null) await sendWithoutInterrupting(paseo, coordinator.agent.id, await relayText(agent, said, answer));
-    });
+    }), { agentId, serverId });
     return {};
   });
   metrics.handle(interruptCrewRpc, async ({ agentId, serverId }, { paseo }) => {
@@ -274,6 +285,15 @@ export default function contribute(server: PluginServerContext) {
   // board's `useSettings` reads and writes valid for this installation.
   server.registerSettings(displaySettings);
 
+  const unregisterCardTurn = server.on("agent.turn_started", async (event) => {
+    const config = await readMissionControlConfig();
+    if (event.agent.id === config.coordinatorAgentId) return;
+    const root = resolveHome(config);
+    const rows = await readBacklog(root);
+    if (rows.some((row) => row.cardEpoch && row.section === "in-flight" && row.agentId === event.agent.id)) {
+      await recordCardTurn(root, event.agent.id, event.turnId ?? randomUUID());
+    }
+  });
   const unregisterRelay = registerSteerRelay(server, steers, readMissionControlConfig);
   // A crewmate whose finish Mission Control has been told about leaves Paseo's "Ready to review"; see server/crew-seen.ts.
   const unregisterCrewSeen = registerCrewSeen(server, readMissionControlConfig);
@@ -281,14 +301,17 @@ export default function contribute(server: PluginServerContext) {
   // A charter change reaches a home already in use on the next reload, rather
   // than waiting for the next launch. Only a home a launch has prepared: this
   // never creates one.
+  recovery.request();
   void refreshCharter().catch((error: unknown) => {
     console.error("[mission-control] could not rewrite the charter:", error);
   });
 
   return () => {
     metrics.stop();
+    unregisterCardTurn();
     unregisterRelay();
     unregisterCrewSeen();
+    recovery.stop();
     watches.stop();
     return hosts.dispose();
   };
