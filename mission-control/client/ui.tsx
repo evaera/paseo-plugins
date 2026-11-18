@@ -15,6 +15,7 @@ export const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" })
 
 export type Tone = "default" | "accent" | "danger";
 
+export const CONTROL_HEIGHT = 28;
 const ICON_SIZE = 14;
 const ICON_PADDING = 7;
 const LABEL_PADDING = 10;
@@ -66,6 +67,7 @@ export function IconButton({
         gap: LABEL_GAP,
         paddingHorizontal: showLabel ? LABEL_PADDING : ICON_PADDING,
         paddingVertical: 6,
+        minHeight: touch ? TOUCH_TARGET : CONTROL_HEIGHT,
         borderRadius: 8,
         borderWidth: 1,
         borderColor: tone === "accent" ? colors.accent : colors.border,
@@ -73,7 +75,7 @@ export function IconButton({
         opacity: disabled ? 0.5 : 1,
         // A long label — a card action Mission Control named — wraps inside a narrow card instead of overflowing it.
         maxWidth: "100%" as const,
-        ...(touch ? { minHeight: TOUCH_TARGET, minWidth: TOUCH_TARGET, justifyContent: "center" as const } : {}),
+        ...(touch ? { minWidth: TOUCH_TARGET, justifyContent: "center" as const } : {}),
       },
       // The accent fill has no lighter token to move to, so it dims instead.
       raised: tone === "accent" ? { opacity: 0.85 } : { backgroundColor: colors.surface2, borderColor: colors.foregroundMuted },
@@ -163,7 +165,7 @@ export function Segmented<Value extends string>({
     () => ({
       frame: {
         flexDirection: "row" as const,
-        height: touch ? TOUCH_TARGET : 28,
+        height: touch ? TOUCH_TARGET : CONTROL_HEIGHT,
         padding: 2,
         gap: 2,
         borderRadius: 9,

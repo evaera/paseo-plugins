@@ -5,10 +5,13 @@ import { useRef, useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 
 import { activateToolbarAction, toolbarIcon, type ToolbarAction, type ToolbarItem, type ToolbarMenu } from "../shared/toolbar";
+import { TOUCH_TARGET } from "./layout-tier";
 import { FONT_SIZE } from "./type-scale";
-import { errorText } from "./ui";
+import { CONTROL_HEIGHT, errorText } from "./ui";
 
 type Anchor = { x: number; y: number; width: number; height: number };
+const GROUP_PADDING = 2;
+const GROUP_BORDER = 1;
 
 export function ToolbarControls({ items, theme, touch, workspaceId, openWorkspace }: {
   items: readonly ToolbarItem[];
@@ -44,10 +47,11 @@ export function ToolbarControls({ items, theme, touch, workspaceId, openWorkspac
       <View key={index} style={{
         flexDirection: inMenu ? "column" : "row",
         borderRadius: 9,
-        borderWidth: 1,
+        borderWidth: grouped && !inMenu ? 0 : GROUP_BORDER,
         borderColor: colors.border,
         backgroundColor: colors.surface1,
-        padding: 2,
+        paddingHorizontal: GROUP_PADDING,
+        paddingVertical: grouped && !inMenu ? 0 : GROUP_PADDING,
         gap: 1,
       }}>
         {renderItems(item.items, inMenu, true)}
@@ -146,6 +150,9 @@ function ToolbarButton({ item, theme, touch, grouped = false, menuRow = false, b
   const [hovered, setHovered] = useState(false);
   const { colors } = theme;
   const menu = item.type === "menu" && !back;
+  const controlHeight = touch ? TOUCH_TARGET : CONTROL_HEIGHT;
+  const minHeight = menuRow ? (touch ? TOUCH_TARGET : 34)
+    : grouped ? controlHeight - 2 * (GROUP_PADDING + GROUP_BORDER) : controlHeight;
   return (
     <View ref={anchor} collapsable={false}>
       <Pressable
@@ -163,7 +170,7 @@ function ToolbarButton({ item, theme, touch, grouped = false, menuRow = false, b
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
-          minHeight: touch ? 44 : menuRow ? 34 : grouped ? 24 : 28,
+          minHeight,
           paddingHorizontal: 8,
           gap: 6,
           borderRadius: 7,

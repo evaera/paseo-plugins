@@ -1,15 +1,17 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
-import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useRef, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 
 import { steerCrew, type FleetCard } from "../shared/fleet";
 import { actionRevision } from "./action-order";
 import { cardDebriefTarget, useBoardTasks } from "./board-tasks";
 import type { CoordinatorAsk } from "./card-answer";
 import { columnTone } from "./format";
+import { GrowingSlot, useGrowingHeight } from "./growing-input";
 import { useKeyboardOverlap } from "./keyboard";
+import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { QuietButton, errorText } from "./ui";
@@ -59,20 +61,25 @@ export function ActionPanel({
   const specimen = packet?.specimens;
   const files = useFileLinks(specimen ? [specimen] : [], {}, localFiles && onOpenFile != null);
   const reportPath = card.backlog?.reportPath;
-  const freeAnswer = canAnswer && !answered && !pending && actions.length === 0;
+  const canReply = canAnswer && !answered;
 
   function openLink(url: string): void {
     void openExternalUrl(url).catch((error: unknown) => toast.error(errorText(error)));
   }
 
-  function send(label: string, prompt: string): void {
-    if (inFlight.current || busy || answered) return;
+  function send(label: string, prompt: string, rewrite = false): void {
+    if (inFlight.current || busy || answered || (rewrite && toCoordinator === null)) return;
     const subject = card.taskId ?? card.title;
-    const text = `Action Queue decision for ${subject}: ${label}\n${prompt}\n\nReviewed item: ${description ?? card.title}`;
+    const kind = rewrite ? "card rewrite request" : pending ? "note" : "decision";
+    const text = `Action Queue ${kind} for ${subject}: ${label}\n${prompt}\n\nReviewed item: ${description ?? card.title}`;
     inFlight.current = true;
     setSending(true);
     const finish = () => { inFlight.current = false; setSending(false); };
-    const success = () => { onAnswered(); setAnswer(""); finish(); };
+    const success = () => {
+      if (!pending) onAnswered();
+      setAnswer("");
+      finish();
+    };
     if (toCoordinator !== null) {
       if (!toCoordinator.send(text, finish, success)) finish();
     } else if (agent !== null) {
@@ -121,23 +128,72 @@ export function ActionPanel({
         {agent !== null && pending && !stale ? <ActionPermissions agent={agent} theme={theme} compact={compact} onOpenLink={openLink} /> : null}
       </ScrollView>
       <View style={{ gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface1 }}>
-        {freeAnswer ? (
-          <TextInput value={answer} onChangeText={setAnswer} placeholder="Write a decision"
-            placeholderTextColor={colors.foregroundMuted} accessibilityLabel="Write a decision"
-            style={{ color: colors.foreground, padding: 10, minHeight: 44, borderWidth: 1, borderColor: colors.border, borderRadius: 8 }} />
+        {canReply ? (
+          <ActionReply value={answer} onChange={setAnswer} theme={theme} compact={compact} busy={busy}
+            sending={sending} pending={pending} onSend={(reply) => send("Reply", reply)} />
         ) : null}
         <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-          {answered ? <Text style={{ color: colors.foregroundMuted }}>Decision sent</Text> : pending ? null : actions.map((action, index) => (
-            <ActionButton key={index} label={action.label} theme={theme} primary={index === 0}
+          {answered ? <Text style={{ color: colors.foregroundMuted }}>Response sent</Text> : pending ? null : actions.map((action, index) => (
+            <ActionButton key={index} label={action.label} theme={theme} primary={index === 0 && !answer.trim()}
               disabled={busy || !canAnswer} onPress={() => send(action.label, action.prompt)} />
           ))}
-          {freeAnswer ? <ActionButton label="Send decision" theme={theme} primary disabled={busy || !answer.trim()} onPress={() => send("Reply", answer.trim())} /> : null}
+          <ActionButton label="Rewrite card" theme={theme} disabled={busy || answered || toCoordinator === null}
+            onPress={() => send("Rewrite card", "Rewrite this card with enough context to understand what prompted it, what changed or is blocked, and what decision is needed. Attach current media when relevant and available. Return the revised card to the queue for the same decision.", true)} />
           {count === undefined || tasks.open === null ? null : (
             <ActionButton label="Open card" theme={theme} onPress={() => tasks.open?.(card)} />
           )}
           {onDefer === undefined ? null : <ActionButton label="Defer" theme={theme} disabled={sending} onPress={onDefer} />}
         </View>
       </View>
+    </View>
+  );
+}
+
+function ActionReply({ value, onChange, onSend, theme, compact, busy, sending, pending }: {
+  value: string;
+  onChange: (text: string) => void;
+  onSend: (text: string) => void;
+  theme: PluginTheme;
+  compact: boolean;
+  busy: boolean;
+  sending: boolean;
+  pending: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
+  const { colors } = theme;
+  const reply = value.trim();
+  const disabled = busy || reply === "";
+  const label = pending ? "Write a note" : "Write a custom reply";
+  const growing = useGrowingHeight({ text: value, fontSize: 14, lineHeight: 20, maxLines: 5, enabled: true });
+
+  return (
+    <View style={{
+      flexDirection: "row", alignItems: "flex-end", gap: 10, paddingLeft: 14, paddingRight: 5, paddingVertical: 5,
+      borderRadius: 16, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, backgroundColor: colors.surface0,
+    }}>
+      <View style={{ flex: 1, minWidth: 0, paddingVertical: 7 }}>
+        <GrowingSlot twin={growing.twin}>
+          <TextInput value={value} onChangeText={onChange} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+            multiline editable={!sending} placeholder={`${label}…`} placeholderTextColor={colors.foregroundMuted}
+            accessibilityLabel={label}
+            onKeyPress={Platform.OS === "web" && !compact ? (event: WebKeyPressEvent) => {
+              if (!isSendKey(event.nativeEvent)) return;
+              event.preventDefault();
+              if (!disabled) onSend(reply);
+            } : undefined}
+            style={{ height: growing.height, color: colors.foreground, fontSize: 14, lineHeight: 20,
+              padding: 0, textAlignVertical: "top", outlineWidth: 0 }} />
+        </GrowingSlot>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={pending ? "Send note" : "Send custom reply"}
+        accessibilityState={{ disabled }} disabled={disabled} onPress={() => onSend(reply)} hitSlop={5}
+        style={({ pressed }) => ({
+          width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center",
+          backgroundColor: disabled ? colors.surface2 : colors.accent,
+          opacity: pressed ? 0.8 : 1,
+        })}>
+        <Icon name="ArrowUp" size={17} color={disabled ? colors.foregroundMuted : colors.accentForeground} />
+      </Pressable>
     </View>
   );
 }

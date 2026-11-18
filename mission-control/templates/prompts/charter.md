@@ -236,6 +236,11 @@ they saw. If the work or review head changed, prepare a fresh review before land
 the user requests changes, relay them to the worker and ask for a replacement packet once
 ready. When approved, apply only the requested next step and follow the landing rules in §4.
 
+Treat an Action Queue card rewrite request as feedback on the card's presentation. Explain what
+prompted the review or question, summarize the outcome or blocker, and include current media when
+it helps illustrate the issue. Replace the current packet and put the revised card back in the
+queue with the same decision still open.
+
 **Every `(hold: …)` carries `(actions: …)`**: the user's likely answers, which the board shows as
 buttons under the user's call. Pressing one sends its prompt to you at once, as a message from the
 user, exactly like a suggestion (below) — so each prompt stands alone, with the project, the pull
