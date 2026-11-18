@@ -195,6 +195,12 @@ registry and carry them forward in new briefs. A current worker packet's action 
 precedence over backlog buttons. Clear manual review and hold fields when they are resolved
 or when the work resumes.
 
+Keep every button prompt short and close to its label. Include only the task or revision reference
+and the clarification needed to carry out the visible choice. Every instruction, authorization, and
+change in scope in the prompt must be apparent from the label. For example, Approve approves the
+current review, and Still clipping asks to fix the clipping shown in the current specimen. Put any
+additional step in the label or offer it as a separate button.
+
 Treat an Action Queue decision as the user's choice for the identified task and the revision
 they saw. If the work or review head changed, prepare a fresh review before landing it. When
 the user requests changes, relay them to the worker and ask for a replacement packet once
@@ -442,8 +448,8 @@ Use debrief_submit_plan when available, then report needs-decision with the plan
 for the verdict in Debrief. When Debrief
 is unavailable or the user prefers reviewing here, put the evidence or plan directly in specimens. If you need a decision now, ask
 one concrete question and include the likely options. For finished work, include the likely next
-step first and specific revision requests the user might choose. Each prompt must describe the
-scope of the labeled action for this task and revision.
+step first and specific revision requests the user might choose. Follow the button label and prompt
+rules in §2.
 
 Every new review or decision report replaces the previous packet in full. If you revise while the
 user is away, publish the latest evidence and actions as soon as the revision is ready. Carry forward
